@@ -1,5 +1,6 @@
 import express, { Application, Request, Response } from "express";
 import cors from "cors";
+import notificationRoutes from "./routes/notification.routes";
 
 const app: Application = express();
 
@@ -17,8 +18,8 @@ app.get("/health", (req: Request, res: Response) => {
   });
 });
 
-// API Routes will be added here
-// app.use('/api/notifications', notificationRoutes);
+// API Routes
+app.use("/api/notifications", notificationRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
