@@ -9,12 +9,15 @@ services:
       NODE_ENV: development
       MONGODB_URI: mongodb://mongo:27017/wavecom-notifications
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
       LOG_LEVEL: info
 
     depends_on:
       mongo:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   worker:
@@ -24,11 +27,14 @@ services:
       NODE_ENV: development
       MONGODB_URI: mongodb://mongo:27017/wavecom-notifications
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
       LOG_LEVEL: info
     depends_on:
       mongo:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   mongo:
@@ -55,6 +61,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   mongo-data:

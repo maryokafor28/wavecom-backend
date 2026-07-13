@@ -8,6 +8,7 @@ interface EnvConfig {
   port: number;
   mongodbUri: string;
   rabbitmqUrl: string;
+  redisUrl: string;
   nodeEnv: NodeEnv;
   logLevel: string;
   corsOrigin: string;
@@ -56,10 +57,20 @@ const validateRabbitmqUrl = (url: string): string => {
   return url;
 };
 
+const validateRedisUrl = (url: string): string => {
+  if (!url.startsWith("redis://") && !url.startsWith("rediss://")) {
+    throw new Error("REDIS_URL must start with redis:// or rediss://");
+  }
+  return url;
+};
+
 export const envConfig: EnvConfig = Object.freeze({
   port: parsePort(getEnvVariable("PORT", "3000")),
   mongodbUri: validateMongoUri(getEnvVariable("MONGODB_URI")),
   rabbitmqUrl: validateRabbitmqUrl(getEnvVariable("RABBITMQ_URL")),
+  redisUrl: validateRedisUrl(
+    getEnvVariable("REDIS_URL", "redis://localhost:6379"),
+  ),
   nodeEnv: parseNodeEnv(getEnvVariable("NODE_ENV", "development")),
   logLevel: getEnvVariable("LOG_LEVEL", "info"),
   corsOrigin: getEnvVariable("CORS_ORIGIN", "*"),

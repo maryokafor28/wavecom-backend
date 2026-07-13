@@ -1,109 +1,132 @@
-import { connectDatabase } from "../config/database.config";
+import { HydratedDocument } from "mongoose";
+import { connectDatabase, disconnectDatabase } from "../config/database.config";
 import { rabbitmqConnection } from "../config/rabbitmq.config";
 import { queueService } from "../services/queue.service";
 import { notificationService } from "../services/notification.service";
 import Notification from "../models/Notification.model";
-import { IQueueMessage } from "../types";
+import { IQueueMessage, INotification } from "../types";
+import { logger } from "../config/logger";
+
+const log = logger.child({ module: "notification-worker" });
 
 class NotificationWorker {
-  // Process a single notification message
   async processNotification(queueMessage: IQueueMessage): Promise<void> {
     const { notificationId, attempt } = queueMessage;
 
-    console.log(`\n${"=".repeat(60)}`);
-    console.log(`Processing notification: ${notificationId}`);
-    console.log(`Attempt: ${attempt}`);
-    console.log("=".repeat(60));
+    log.info({ notificationId, attempt }, "Processing notification");
 
     try {
-      // Find notification in database
       const notification = await Notification.findById(notificationId);
 
       if (!notification) {
-        console.error(`Notification not found: ${notificationId}`);
+        log.error({ notificationId }, "Notification not found");
         return;
       }
 
-      // Check if already processed
       if (notification.status === "sent") {
-        console.log(`Notification already sent, skipping`);
+        log.info({ notificationId }, "Notification already sent, skipping");
         return;
       }
 
-      // Update status to processing
       notification.status = "processing";
       notification.attempts = attempt;
       notification.lastAttemptAt = new Date();
       await notification.save();
 
-      console.log(
-        `Attempting to send ${notification.channel} notification to ${notification.recipient}`
+      log.info(
+        {
+          notificationId,
+          channel: notification.channel,
+          recipient: notification.recipient,
+        },
+        "Attempting to send notification",
       );
 
-      // Send notification using the appropriate provider
       const success = await notificationService.send(
         notification.channel,
         notification.recipient,
         notification.message,
-        notification.subject
+        notification.subject,
       );
 
       if (success) {
-        // Success - update notification status
         notification.status = "sent";
         notification.sentAt = new Date();
         await notification.save();
 
-        console.log(`Notification sent successfully!`);
-        console.log(`Recipient: ${notification.recipient}`);
-        console.log(`Channel: ${notification.channel}`);
+        log.info(
+          {
+            notificationId,
+            channel: notification.channel,
+            recipient: notification.recipient,
+          },
+          "Notification sent successfully",
+        );
       } else {
-        // Failed - handle retry logic
-        await this.handleFailure(notification, attempt);
+        await this.safeHandleFailure(notification, attempt);
       }
-    } catch (error: any) {
-      console.error(`❌ Error processing notification:`, error.message);
+    } catch (error) {
+      const err = error as Error;
+      log.error({ err, notificationId }, "Error processing notification");
 
-      // Try to update notification with error
       try {
         const notification = await Notification.findById(notificationId);
         if (notification) {
-          await this.handleFailure(notification, attempt, error.message);
+          await this.safeHandleFailure(notification, attempt, err.message);
         }
       } catch (updateError) {
-        console.error(
-          `❌ Failed to update notification after error:`,
-          updateError
+        log.error(
+          { err: updateError, notificationId },
+          "Failed to update notification after error",
         );
       }
     }
   }
 
-  // Handle notification failure and retry logic
-  private async handleFailure(
-    notification: any,
+  // Wraps handleFailure so a failure inside it (e.g. publish error) can't
+  // propagate back out and trigger a second, duplicate handleFailure call
+  // from processNotification's outer catch block.
+  private async safeHandleFailure(
+    notification: HydratedDocument<INotification>,
     attempt: number,
-    errorMessage?: string
+    errorMessage?: string,
   ): Promise<void> {
-    console.log(`Notification failed on attempt ${attempt}`);
+    try {
+      await this.handleFailure(notification, attempt, errorMessage);
+    } catch (error) {
+      log.error(
+        { err: error, notificationId: notification._id },
+        "Failed to handle notification failure (retry/DLQ path)",
+      );
+    }
+  }
 
-    // Check if we should retry
+  private async handleFailure(
+    notification: HydratedDocument<INotification>,
+    attempt: number,
+    errorMessage?: string,
+  ): Promise<void> {
+    log.warn(
+      { notificationId: notification._id, attempt },
+      "Notification failed",
+    );
+
     if (attempt < notification.maxAttempts) {
-      // Requeue for retry
       const nextAttempt = attempt + 1;
+      const delaySeconds = Math.pow(2, attempt) * 5; // 5s, 10s, 20s, 40s...
 
-      console.log(
-        `Requeuing for retry (attempt ${nextAttempt}/${notification.maxAttempts})`
+      log.info(
+        {
+          notificationId: notification._id,
+          nextAttempt,
+          maxAttempts: notification.maxAttempts,
+          delaySeconds,
+        },
+        "Requeuing for retry",
       );
 
-      // Calculate delay before retry (exponential backoff)
-      const delaySeconds = Math.pow(2, attempt) * 5; // 5s, 10s, 20s, 40s...
-      console.log(`Next retry in ${delaySeconds} seconds`);
-
-      // Wait before requeuing
       await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
 
-      // Publish back to queue
       const retryMessage: IQueueMessage = {
         notificationId: notification._id.toString(),
         attempt: nextAttempt,
@@ -111,14 +134,16 @@ class NotificationWorker {
 
       await queueService.publishToQueue(retryMessage);
 
-      // Update notification
       notification.status = "queued";
       notification.error = errorMessage || "Provider returned failure";
       await notification.save();
     } else {
-      // Max retries reached - mark as failed
-      console.log(
-        `Max retries reached (${notification.maxAttempts}), marking as failed`
+      log.warn(
+        {
+          notificationId: notification._id,
+          maxAttempts: notification.maxAttempts,
+        },
+        "Max retries reached, marking as failed",
       );
 
       notification.status = "failed";
@@ -129,43 +154,37 @@ class NotificationWorker {
     }
   }
 
-  // Start the worker
   async start(): Promise<void> {
     try {
-      console.log("Starting Notification Worker...\n");
+      log.info("Starting Notification Worker");
 
-      // Connect to database
       await connectDatabase();
-
-      // Connect to RabbitMQ
       await rabbitmqConnection.connect();
 
-      console.log("Worker ready to process notifications\n");
+      log.info("Worker ready to process notifications");
 
-      // Start consuming messages
       await queueService.consumeFromQueue(async (message: IQueueMessage) => {
         await this.processNotification(message);
       });
     } catch (error) {
-      console.error("❌ Failed to start worker:", error);
+      log.error({ err: error }, "Failed to start worker");
       process.exit(1);
     }
   }
 }
 
-// Create and start worker
 const worker = new NotificationWorker();
 worker.start();
 
-// Graceful shutdown
 const gracefulShutdown = async (): Promise<void> => {
-  console.log("\n Worker shutting down gracefully...");
+  log.info("Worker shutting down gracefully");
 
   try {
     await rabbitmqConnection.close();
+    await disconnectDatabase();
     process.exit(0);
   } catch (error) {
-    console.error("❌ Error during shutdown:", error);
+    log.error({ err: error }, "Error during shutdown");
     process.exit(1);
   }
 };
