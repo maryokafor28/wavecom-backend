@@ -6,7 +6,7 @@ import {
   IQueueMessage,
 } from "../types";
 import { logger } from "../config/logger";
-import Notification from "../models/Notification.model";
+import Notification from "../models/notification.model";
 import { queueService } from "./queue.service";
 
 const log = logger.child({ module: "notification-service" });

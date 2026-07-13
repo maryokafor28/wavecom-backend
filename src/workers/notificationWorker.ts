@@ -3,7 +3,7 @@ import { connectDatabase, disconnectDatabase } from "../config/database.config";
 import { rabbitmqConnection } from "../config/rabbitmq.config";
 import { queueService } from "../services/queue.service";
 import { notificationService } from "../services/notification.service";
-import Notification from "../models/Notification.model";
+import Notification from "../models/notification.model";
 import { IQueueMessage, INotification } from "../types";
 import { logger } from "../config/logger";
 

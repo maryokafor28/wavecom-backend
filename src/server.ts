@@ -5,6 +5,7 @@ import { envConfig } from "./config/env.config";
 import { connectDatabase, disconnectDatabase } from "./config/database.config";
 import { rabbitmqConnection } from "./config/rabbitmq.config";
 import { logger } from "./config/logger";
+import { connectRedis, disconnectRedis } from "./config/redis.config";
 
 const log = logger.child({ module: "server" });
 
@@ -16,6 +17,7 @@ const startServer = async (): Promise<void> => {
   try {
     await connectDatabase();
     await rabbitmqConnection.connect();
+    await connectRedis();
 
     server = app.listen(envConfig.port, () => {
       log.info(
@@ -61,10 +63,12 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
     await rabbitmqConnection.close();
     log.info("RabbitMQ connection closed");
 
+    await disconnectRedis();
+    log.info("Redis connection closed");
+
     await disconnectDatabase();
 
     log.info("Graceful shutdown complete");
-
     clearTimeout(forceExitTimer);
     process.exit(0);
   } catch (error) {

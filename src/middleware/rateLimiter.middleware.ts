@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { redisClient } from "../config/redis.config";
 import { logger } from "../config/logger";
@@ -18,8 +18,7 @@ export const apiLimiter = rateLimit({
   passOnStoreError: true,
 
   // Use the client IP as the rate-limit key.
-  keyGenerator: (req) => req.ip!,
-
+  keyGenerator: (req) => ipKeyGenerator(req.ip!),
   // Don't rate-limit health checks.
   skip: (req) => req.path === "/health",
 

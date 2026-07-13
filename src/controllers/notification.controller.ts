@@ -7,6 +7,7 @@ import {
   isValidRecipient,
   parsePagination,
 } from "../validators/notification.validator";
+import { cacheService } from "../services/cache.service";
 
 const log = logger.child({ module: "notification-controller" });
 
@@ -76,6 +77,14 @@ class NotificationController {
   async getNotification(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      const cacheKey = cacheService.buildNotificationKey(id);
+
+      const cached = await cacheService.get(cacheKey);
+      if (cached) {
+        res.status(200).json({ status: "success", data: cached, cached: true });
+        return;
+      }
+
       const notification = await notificationService.getById(id);
 
       if (!notification) {
@@ -86,26 +95,27 @@ class NotificationController {
         return;
       }
 
-      res.status(200).json({
-        status: "success",
-        data: {
-          id: notification._id,
-          recipient: notification.recipient,
-          message: notification.message,
-          channel: notification.channel,
-          subject: notification.subject,
-          status: notification.status,
-          attempts: notification.attempts,
-          maxAttempts: notification.maxAttempts,
-          lastAttemptAt: notification.lastAttemptAt,
-          sentAt: notification.sentAt,
-          failedAt: notification.failedAt,
-          error: notification.error,
-          metadata: notification.metadata,
-          createdAt: notification.createdAt,
-          updatedAt: notification.updatedAt,
-        },
-      });
+      const data = {
+        id: notification._id,
+        recipient: notification.recipient,
+        message: notification.message,
+        channel: notification.channel,
+        subject: notification.subject,
+        status: notification.status,
+        attempts: notification.attempts,
+        maxAttempts: notification.maxAttempts,
+        lastAttemptAt: notification.lastAttemptAt,
+        sentAt: notification.sentAt,
+        failedAt: notification.failedAt,
+        error: notification.error,
+        metadata: notification.metadata,
+        createdAt: notification.createdAt,
+        updatedAt: notification.updatedAt,
+      };
+
+      await cacheService.set(cacheKey, data, cacheService.notificationTtl);
+
+      res.status(200).json({ status: "success", data });
     } catch (error) {
       log.error({ err: error }, "Error fetching notification");
       res.status(500).json({
@@ -114,10 +124,18 @@ class NotificationController {
       });
     }
   }
-
   async listNotifications(req: Request, res: Response): Promise<void> {
     try {
       const { status, channel, page = "1", limit = "20" } = req.query;
+      const cacheKey = cacheService.buildListKey(
+        req.query as Record<string, unknown>,
+      );
+
+      const cached = await cacheService.get(cacheKey);
+      if (cached) {
+        res.status(200).json({ status: "success", data: cached, cached: true });
+        return;
+      }
 
       const filter: Record<string, unknown> = {};
       if (status) filter.status = status;
@@ -131,27 +149,28 @@ class NotificationController {
         limitNum,
       );
 
-      res.status(200).json({
-        status: "success",
-        data: {
-          notifications: notifications.map((notif) => ({
-            id: notif._id,
-            recipient: notif.recipient,
-            channel: notif.channel,
-            status: notif.status,
-            attempts: notif.attempts,
-            createdAt: notif.createdAt,
-            sentAt: notif.sentAt,
-            failedAt: notif.failedAt,
-          })),
-          pagination: {
-            total: totalCount,
-            page: pageNum,
-            limit: limitNum,
-            totalPages: Math.ceil(totalCount / limitNum),
-          },
+      const data = {
+        notifications: notifications.map((notif) => ({
+          id: notif._id,
+          recipient: notif.recipient,
+          channel: notif.channel,
+          status: notif.status,
+          attempts: notif.attempts,
+          createdAt: notif.createdAt,
+          sentAt: notif.sentAt,
+          failedAt: notif.failedAt,
+        })),
+        pagination: {
+          total: totalCount,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(totalCount / limitNum),
         },
-      });
+      };
+
+      await cacheService.set(cacheKey, data, cacheService.listTtl);
+
+      res.status(200).json({ status: "success", data });
     } catch (error) {
       log.error({ err: error }, "Error listing notifications");
       res.status(500).json({
@@ -160,7 +179,6 @@ class NotificationController {
       });
     }
   }
-
   async deleteNotification(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
@@ -173,6 +191,8 @@ class NotificationController {
         });
         return;
       }
+
+      await cacheService.invalidate(cacheService.buildNotificationKey(id));
 
       log.info({ notificationId: id }, "Notification deleted");
 
@@ -192,5 +212,4 @@ class NotificationController {
     }
   }
 }
-
 export const notificationController = new NotificationController();

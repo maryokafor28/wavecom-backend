@@ -39,12 +39,19 @@ redisClient.on("error", (error) => {
 });
 
 export const connectRedis = async (retries = MAX_RETRIES): Promise<void> => {
+  // The RedisStore used by the rate limiter can trigger an implicit
+  // connection as soon as app.ts is imported (ioredis auto-connects on
+  // its first command even with lazyConnect: true). If that's already
+  // happened, there's nothing left to do here.
+  if (redisClient.status === "ready" || redisClient.status === "connecting") {
+    log.info({ status: redisClient.status }, "Redis already connected");
+    return;
+  }
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       log.info({ attempt, retries }, "Connecting to Redis...");
-
       await redisClient.connect();
-
       log.info("Redis connected successfully");
       return;
     } catch (error) {
@@ -56,14 +63,11 @@ export const connectRedis = async (retries = MAX_RETRIES): Promise<void> => {
         },
         "Redis connection attempt failed",
       );
-
       if (attempt === retries) {
         log.error("Failed to connect to Redis after all retries");
         throw error;
       }
-
       const delay = Math.min(BASE_DELAY_MS * 2 ** (attempt - 1), MAX_DELAY_MS);
-
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }

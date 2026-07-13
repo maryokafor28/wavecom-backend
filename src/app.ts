@@ -6,6 +6,7 @@ import notificationRoutes from "./routes/notification.routes";
 import { envConfig } from "./config/env.config";
 import { logger } from "./config/logger";
 import { notFoundHandler, errorHandler } from "./middleware/error.middleware";
+import { apiLimiter } from "./middleware/rateLimiter.middleware";
 
 const app: Application = express();
 
@@ -37,8 +38,7 @@ app.get("/health", (req: Request, res: Response) => {
 });
 
 // API Routes
-app.use("/api/notifications", notificationRoutes);
-
+app.use("/api/notifications", apiLimiter, notificationRoutes);
 // 404 handler — after all real routes
 app.use(notFoundHandler);
 
