@@ -1,8 +1,14 @@
+import { Message } from "amqplib";
 import {
   rabbitmqConnection,
   NOTIFICATION_QUEUE,
 } from "../config/rabbitmq.config";
 import { IQueueMessage } from "../types";
+import { logger } from "../config/logger";
+
+const MAX_MESSAGE_RETRIES = 3;
+
+const log = logger.child({ module: "queue-service" });
 
 class QueueService {
   // Publish a message to the queue
@@ -10,74 +16,115 @@ class QueueService {
     try {
       const channel = rabbitmqConnection.getChannel();
 
-      // Convert message object to Buffer (RabbitMQ needs binary data)
       const messageBuffer = Buffer.from(JSON.stringify(message));
 
-      // Send message to queue
       const published = channel.sendToQueue(NOTIFICATION_QUEUE, messageBuffer, {
         persistent: true, // Message survives RabbitMQ restart
       });
 
       if (published) {
-        console.log(`📤 Message published to queue:`, message);
-        return true;
+        log.info(
+          {
+            notificationId: message.notificationId,
+            attempt: message.attempt,
+          },
+          "Message published to queue",
+        );
       } else {
-        console.warn("⚠️  Queue is full, message not published");
-        return false;
+        log.warn(
+          {
+            notificationId: message.notificationId,
+            attempt: message.attempt,
+          },
+          "RabbitMQ write buffer is full. Message will be flushed when the drain event is emitted.",
+        );
       }
+
+      return published;
     } catch (error) {
-      console.error("❌ Failed to publish message to queue:", error);
+      log.error({ err: error }, "Failed to publish message to queue");
       throw error;
     }
   }
 
-  // Consume messages from the queue (will be used by worker)
+  // Consume messages from the queue
   async consumeFromQueue(
-    onMessage: (message: IQueueMessage) => Promise<void>
+    onMessage: (message: IQueueMessage) => Promise<void>,
   ): Promise<void> {
     try {
       const channel = rabbitmqConnection.getChannel();
 
-      console.log(`👂 Waiting for messages in queue: ${NOTIFICATION_QUEUE}`);
+      log.info({ queue: NOTIFICATION_QUEUE }, "Waiting for messages");
 
-      // Set prefetch to 1 - process one message at a time
-      channel.prefetch(1);
+      // Allow each worker to process up to 10 unacknowledged messages
+      // concurrently for better throughput.
+      channel.prefetch(10);
 
-      // Start consuming messages
       channel.consume(
         NOTIFICATION_QUEUE,
-        async (msg: any) => {
-          if (msg === null) {
-            return;
-          }
+        async (msg: Message | null) => {
+          if (!msg) return;
+
+          const retryCount =
+            (msg.properties.headers?.["x-retry-count"] as number) ?? 0;
 
           try {
-            // Parse message content
-            const messageContent = msg.content.toString();
-            const queueMessage: IQueueMessage = JSON.parse(messageContent);
+            const queueMessage: IQueueMessage = JSON.parse(
+              msg.content.toString(),
+            );
 
-            console.log(`📥 Received message:`, queueMessage);
+            log.info(
+              {
+                notificationId: queueMessage.notificationId,
+                attempt: queueMessage.attempt,
+              },
+              "Received message",
+            );
 
-            // Process the message (call the handler function)
             await onMessage(queueMessage);
 
-            // Acknowledge message (remove from queue)
             channel.ack(msg);
-            console.log(`✅ Message acknowledged`);
-          } catch (error) {
-            console.error("❌ Error processing message:", error);
 
-            // Reject message and requeue it (will be retried)
-            channel.nack(msg, false, true);
-            console.log(`🔄 Message requeued for retry`);
+            log.info(
+              {
+                notificationId: queueMessage.notificationId,
+              },
+              "Message acknowledged",
+            );
+          } catch (error) {
+            log.error({ err: error, retryCount }, "Error processing message");
+
+            if (retryCount >= MAX_MESSAGE_RETRIES) {
+              channel.nack(msg, false, false);
+
+              log.warn(
+                { retryCount },
+                "Max retries exceeded. Message moved to dead-letter queue.",
+              );
+            } else {
+              channel.nack(msg, false, false);
+
+              channel.sendToQueue(NOTIFICATION_QUEUE, msg.content, {
+                persistent: true,
+                headers: {
+                  ...msg.properties.headers,
+                  "x-retry-count": retryCount + 1,
+                },
+              });
+
+              log.info(
+                { retryCount: retryCount + 1 },
+                "Message requeued for retry",
+              );
+            }
           }
         },
         {
-          noAck: false, // Manual acknowledgment (important for reliability)
-        }
+          noAck: false,
+        },
       );
     } catch (error) {
-      console.error("❌ Failed to consume from queue:", error);
+      log.error({ err: error }, "Failed to consume from queue");
       throw error;
     }
   }

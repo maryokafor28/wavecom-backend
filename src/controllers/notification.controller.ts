@@ -1,10 +1,32 @@
 import { Request, Response } from "express";
 import Notification from "../models/Notification.model";
 import { queueService } from "../services/queue.service";
-import { ICreateNotificationRequest, IQueueMessage } from "../types";
+import {
+  ICreateNotificationRequest,
+  IQueueMessage,
+  NotificationChannel,
+} from "../types";
+import { logger } from "../config/logger";
+
+const log = logger.child({ module: "notification-controller" });
+
+const VALID_CHANNELS: NotificationChannel[] = ["email", "sms", "push"];
+const MAX_LIST_LIMIT = 100;
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Loose E.164-ish check — tighten later if you adopt a proper phone validation lib.
+const PHONE_REGEX = /^\+?[1-9]\d{7,14}$/;
+
+function isValidRecipient(
+  channel: NotificationChannel,
+  recipient: string,
+): boolean {
+  if (channel === "email") return EMAIL_REGEX.test(recipient);
+  if (channel === "sms") return PHONE_REGEX.test(recipient);
+  return true; // push tokens vary too much in shape to validate generically here
+}
 
 class NotificationController {
-  // POST /api/notifications - Create new notification
   async createNotification(req: Request, res: Response): Promise<void> {
     try {
       const {
@@ -15,7 +37,6 @@ class NotificationController {
         metadata,
       }: ICreateNotificationRequest = req.body;
 
-      // Validate required fields
       if (!recipient || !message || !channel) {
         res.status(400).json({
           status: "error",
@@ -24,8 +45,7 @@ class NotificationController {
         return;
       }
 
-      // Validate channel type
-      if (!["email", "sms", "push"].includes(channel)) {
+      if (!VALID_CHANNELS.includes(channel)) {
         res.status(400).json({
           status: "error",
           message: "Invalid channel. Must be: email, sms, or push",
@@ -33,7 +53,14 @@ class NotificationController {
         return;
       }
 
-      // Create notification in database
+      if (!isValidRecipient(channel, recipient)) {
+        res.status(400).json({
+          status: "error",
+          message: `Invalid recipient format for channel "${channel}"`,
+        });
+        return;
+      }
+
       const notification = await Notification.create({
         recipient,
         message,
@@ -45,21 +72,39 @@ class NotificationController {
         maxAttempts: 3,
       });
 
-      console.log(`✅ Notification created: ${notification._id}`);
+      log.info({ notificationId: notification._id }, "Notification created");
 
-      // Publish to queue for processing
       const queueMessage: IQueueMessage = {
         notificationId: notification._id.toString(),
         attempt: 1,
       };
 
-      await queueService.publishToQueue(queueMessage);
+      try {
+        await queueService.publishToQueue(queueMessage);
 
-      // Update status to queued
-      notification.status = "queued";
-      await notification.save();
+        notification.status = "queued";
+        await notification.save();
+      } catch (publishError) {
+        // The DB record exists but nothing will ever process it unless we
+        // mark it failed here — otherwise it's orphaned in "pending" forever.
+        log.error(
+          { err: publishError, notificationId: notification._id },
+          "Failed to publish notification to queue",
+        );
 
-      // Return response to client
+        notification.status = "failed";
+        notification.error = "Failed to queue notification for processing";
+        await notification.save();
+
+        res.status(502).json({
+          status: "error",
+          message:
+            "Notification was created but could not be queued. Please retry.",
+          data: { id: notification._id },
+        });
+        return;
+      }
+
       res.status(201).json({
         status: "success",
         message: "Notification created and queued for processing",
@@ -71,22 +116,18 @@ class NotificationController {
           createdAt: notification.createdAt,
         },
       });
-    } catch (error: any) {
-      console.error("❌ Error creating notification:", error);
+    } catch (error) {
+      log.error({ err: error }, "Error creating notification");
       res.status(500).json({
         status: "error",
         message: "Failed to create notification",
-        error: error.message,
       });
     }
   }
 
-  // GET /api/notifications/:id - Get single notification
   async getNotification(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-
-      // Find notification by ID
       const notification = await Notification.findById(id);
 
       if (!notification) {
@@ -97,7 +138,6 @@ class NotificationController {
         return;
       }
 
-      // Return notification details
       res.status(200).json({
         status: "success",
         data: {
@@ -118,47 +158,37 @@ class NotificationController {
           updatedAt: notification.updatedAt,
         },
       });
-    } catch (error: any) {
-      console.error("❌ Error fetching notification:", error);
+    } catch (error) {
+      log.error({ err: error }, "Error fetching notification");
       res.status(500).json({
         status: "error",
         message: "Failed to fetch notification",
-        error: error.message,
       });
     }
   }
 
-  // GET /api/notifications - List all notifications with filters
   async listNotifications(req: Request, res: Response): Promise<void> {
     try {
       const { status, channel, page = "1", limit = "20" } = req.query;
 
-      // Build filter object
-      const filter: any = {};
+      const filter: Record<string, unknown> = {};
+      if (status) filter.status = status;
+      if (channel) filter.channel = channel;
 
-      if (status) {
-        filter.status = status;
-      }
-
-      if (channel) {
-        filter.channel = channel;
-      }
-
-      // Calculate pagination
-      const pageNum = parseInt(page as string, 10);
-      const limitNum = parseInt(limit as string, 10);
+      const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+      const limitNum = Math.min(
+        MAX_LIST_LIMIT,
+        Math.max(1, parseInt(limit as string, 10) || 20),
+      );
       const skip = (pageNum - 1) * limitNum;
 
-      // Get total count for pagination
       const totalCount = await Notification.countDocuments(filter);
 
-      // Fetch notifications with pagination
       const notifications = await Notification.find(filter)
-        .sort({ createdAt: -1 }) // Newest first
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum);
 
-      // Return list with pagination info
       res.status(200).json({
         status: "success",
         data: {
@@ -180,12 +210,42 @@ class NotificationController {
           },
         },
       });
-    } catch (error: any) {
-      console.error("❌ Error listing notifications:", error);
+    } catch (error) {
+      log.error({ err: error }, "Error listing notifications");
       res.status(500).json({
         status: "error",
         message: "Failed to list notifications",
-        error: error.message,
+      });
+    }
+  }
+
+  async deleteNotification(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const notification = await Notification.findByIdAndDelete(id);
+
+      if (!notification) {
+        res.status(404).json({
+          status: "error",
+          message: "Notification not found",
+        });
+        return;
+      }
+
+      log.info({ notificationId: id }, "Notification deleted");
+
+      res.status(200).json({
+        status: "success",
+        message: "Notification deleted successfully",
+        data: {
+          id: notification._id,
+        },
+      });
+    } catch (error) {
+      log.error({ err: error }, "Error deleting notification");
+      res.status(500).json({
+        status: "error",
+        message: "Failed to delete notification",
       });
     }
   }

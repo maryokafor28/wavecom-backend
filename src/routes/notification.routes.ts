@@ -18,4 +18,9 @@ router.get("/", (req, res) =>
   notificationController.listNotifications(req, res)
 );
 
+//delete notifcation by id
+router.delete("/:id", (req, res) =>
+  notificationController.deleteNotification(req, res)
+);
+
 export default router;

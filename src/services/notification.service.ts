@@ -1,114 +1,127 @@
 import { NotificationChannel } from "../types";
+import { logger } from "../config/logger";
+import { envConfig } from "../config/env.config";
 
-// Mock providers simulate actual notification sending
-class NotificationService {
-  // Mock Email Provider
-  private async sendEmail(
+const log = logger.child({ module: "notification-service" });
+
+// Every real provider (Resend, Twilio, FCM, etc.) implements this shape.
+// Swapping mock → real later means adding a new class here and changing
+// the provider selection at the bottom — nothing else in the app changes.
+interface NotificationProvider {
+  send(recipient: string, message: string, subject?: string): Promise<boolean>;
+}
+
+class MockEmailProvider implements NotificationProvider {
+  async send(
     recipient: string,
-    subject: string,
-    message: string
+    message: string,
+    subject = "Notification",
   ): Promise<boolean> {
-    return new Promise((resolve) => {
-      // Simulate network delay (200-500ms)
-      const delay = Math.random() * 300 + 200;
+    const delay = Math.random() * 300 + 200; // 200-500ms
+    await new Promise((resolve) => setTimeout(resolve, delay));
 
-      setTimeout(() => {
-        // Simulate 90% success rate
-        const success = Math.random() > 0.1;
+    const success = Math.random() > 0.1; // 90% success rate
 
-        if (success) {
-          console.log(`📧 Email sent to ${recipient}`);
-          console.log(`   Subject: ${subject}`);
-          console.log(`   Message: ${message.substring(0, 50)}...`);
-        } else {
-          console.log(`❌ Email failed to ${recipient}`);
-        }
+    if (success) {
+      log.info({ recipient, subject }, "Email sent (mock)");
+    } else {
+      log.warn({ recipient, subject }, "Email failed (mock)");
+    }
 
-        resolve(success);
-      }, delay);
-    });
+    return success;
   }
+}
 
-  // Mock SMS Provider
-  private async sendSMS(recipient: string, message: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      // Simulate network delay (100-300ms)
-      const delay = Math.random() * 200 + 100;
+class MockSmsProvider implements NotificationProvider {
+  async send(recipient: string, message: string): Promise<boolean> {
+    const delay = Math.random() * 200 + 100; // 100-300ms
+    await new Promise((resolve) => setTimeout(resolve, delay));
 
-      setTimeout(() => {
-        // Simulate 85% success rate
-        const success = Math.random() > 0.15;
+    const success = Math.random() > 0.15; // 85% success rate
 
-        if (success) {
-          console.log(`📱 SMS sent to ${recipient}`);
-          console.log(`   Message: ${message.substring(0, 50)}...`);
-        } else {
-          console.log(`❌ SMS failed to ${recipient}`);
-        }
+    if (success) {
+      log.info({ recipient }, "SMS sent (mock)");
+    } else {
+      log.warn({ recipient }, "SMS failed (mock)");
+    }
 
-        resolve(success);
-      }, delay);
-    });
+    return success;
   }
+}
 
-  // Mock Push Notification Provider
-  private async sendPush(recipient: string, message: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      // Simulate network delay (50-150ms)
-      const delay = Math.random() * 100 + 50;
+class MockPushProvider implements NotificationProvider {
+  async send(recipient: string, message: string): Promise<boolean> {
+    const delay = Math.random() * 100 + 50; // 50-150ms
+    await new Promise((resolve) => setTimeout(resolve, delay));
 
-      setTimeout(() => {
-        // Simulate 95% success rate (push is most reliable)
-        const success = Math.random() > 0.05;
+    const success = Math.random() > 0.05; // 95% success rate
 
-        if (success) {
-          console.log(`🔔 Push notification sent to ${recipient}`);
-          console.log(`   Message: ${message.substring(0, 50)}...`);
-        } else {
-          console.log(`❌ Push failed to ${recipient}`);
-        }
+    if (success) {
+      log.info({ recipient }, "Push notification sent (mock)");
+    } else {
+      log.warn({ recipient }, "Push failed (mock)");
+    }
 
-        resolve(success);
-      }, delay);
-    });
+    return success;
   }
+}
 
-  // Main send method - routes to correct provider
+// Real providers get added here later, e.g.:
+// class ResendEmailProvider implements NotificationProvider { ... }
+
+const SEND_TIMEOUT_MS = 10_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error(`Send timed out after ${ms}ms`)),
+      ms,
+    );
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timeoutHandle!);
+  }
+}
+
+class NotificationService {
+  // Provider selection point — this is the only place that changes when
+  // you swap a mock for a real provider. In prod, envConfig.nodeEnv can
+  // gate which class gets instantiated here.
+  private providers: Record<NotificationChannel, NotificationProvider> = {
+    email: new MockEmailProvider(),
+    sms: new MockSmsProvider(),
+    push: new MockPushProvider(),
+  };
+
   async send(
     channel: NotificationChannel,
     recipient: string,
     message: string,
-    subject?: string
+    subject?: string,
   ): Promise<boolean> {
-    console.log(`\n🚀 Sending ${channel} notification...`);
+    log.info({ channel, recipient }, "Sending notification");
+
+    const provider = this.providers[channel];
+
+    if (!provider) {
+      log.error({ channel }, "Unsupported notification channel");
+      return false;
+    }
 
     try {
-      let success = false;
-
-      switch (channel) {
-        case "email":
-          success = await this.sendEmail(
-            recipient,
-            subject || "Notification",
-            message
-          );
-          break;
-
-        case "sms":
-          success = await this.sendSMS(recipient, message);
-          break;
-
-        case "push":
-          success = await this.sendPush(recipient, message);
-          break;
-
-        default:
-          throw new Error(`Unsupported channel: ${channel}`);
-      }
-
-      return success;
+      return await withTimeout(
+        provider.send(recipient, message, subject),
+        SEND_TIMEOUT_MS,
+      );
     } catch (error) {
-      console.error(`❌ Error in ${channel} provider:`, error);
+      log.error(
+        { err: error, channel, recipient },
+        "Error in notification provider",
+      );
       return false;
     }
   }
