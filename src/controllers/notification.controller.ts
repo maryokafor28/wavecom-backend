@@ -1,41 +1,20 @@
 import { Request, Response } from "express";
-import Notification from "../models/Notification.model";
-import { queueService } from "../services/queue.service";
-import {
-  ICreateNotificationRequest,
-  IQueueMessage,
-  NotificationChannel,
-} from "../types";
+import { ICreateNotificationRequest } from "../types";
 import { logger } from "../config/logger";
+import { notificationService } from "../services/notification.service";
+import {
+  isValidChannel,
+  isValidRecipient,
+  parsePagination,
+} from "../validators/notification.validator";
 
 const log = logger.child({ module: "notification-controller" });
-
-const VALID_CHANNELS: NotificationChannel[] = ["email", "sms", "push"];
-const MAX_LIST_LIMIT = 100;
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Loose E.164-ish check — tighten later if you adopt a proper phone validation lib.
-const PHONE_REGEX = /^\+?[1-9]\d{7,14}$/;
-
-function isValidRecipient(
-  channel: NotificationChannel,
-  recipient: string,
-): boolean {
-  if (channel === "email") return EMAIL_REGEX.test(recipient);
-  if (channel === "sms") return PHONE_REGEX.test(recipient);
-  return true; // push tokens vary too much in shape to validate generically here
-}
 
 class NotificationController {
   async createNotification(req: Request, res: Response): Promise<void> {
     try {
-      const {
-        recipient,
-        message,
-        channel,
-        subject,
-        metadata,
-      }: ICreateNotificationRequest = req.body;
+      const body: ICreateNotificationRequest = req.body;
+      const { recipient, message, channel } = body;
 
       if (!recipient || !message || !channel) {
         res.status(400).json({
@@ -45,7 +24,7 @@ class NotificationController {
         return;
       }
 
-      if (!VALID_CHANNELS.includes(channel)) {
+      if (!isValidChannel(channel)) {
         res.status(400).json({
           status: "error",
           message: "Invalid channel. Must be: email, sms, or push",
@@ -61,41 +40,10 @@ class NotificationController {
         return;
       }
 
-      const notification = await Notification.create({
-        recipient,
-        message,
-        channel,
-        subject,
-        metadata,
-        status: "pending",
-        attempts: 0,
-        maxAttempts: 3,
-      });
+      const { notification, queueError } =
+        await notificationService.createAndQueue(body);
 
-      log.info({ notificationId: notification._id }, "Notification created");
-
-      const queueMessage: IQueueMessage = {
-        notificationId: notification._id.toString(),
-        attempt: 1,
-      };
-
-      try {
-        await queueService.publishToQueue(queueMessage);
-
-        notification.status = "queued";
-        await notification.save();
-      } catch (publishError) {
-        // The DB record exists but nothing will ever process it unless we
-        // mark it failed here — otherwise it's orphaned in "pending" forever.
-        log.error(
-          { err: publishError, notificationId: notification._id },
-          "Failed to publish notification to queue",
-        );
-
-        notification.status = "failed";
-        notification.error = "Failed to queue notification for processing";
-        await notification.save();
-
+      if (queueError) {
         res.status(502).json({
           status: "error",
           message:
@@ -128,7 +76,7 @@ class NotificationController {
   async getNotification(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const notification = await Notification.findById(id);
+      const notification = await notificationService.getById(id);
 
       if (!notification) {
         res.status(404).json({
@@ -175,19 +123,13 @@ class NotificationController {
       if (status) filter.status = status;
       if (channel) filter.channel = channel;
 
-      const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-      const limitNum = Math.min(
-        MAX_LIST_LIMIT,
-        Math.max(1, parseInt(limit as string, 10) || 20),
+      const { pageNum, limitNum } = parsePagination(page, limit);
+
+      const { notifications, totalCount } = await notificationService.list(
+        filter,
+        pageNum,
+        limitNum,
       );
-      const skip = (pageNum - 1) * limitNum;
-
-      const totalCount = await Notification.countDocuments(filter);
-
-      const notifications = await Notification.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum);
 
       res.status(200).json({
         status: "success",
@@ -222,7 +164,7 @@ class NotificationController {
   async deleteNotification(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const notification = await Notification.findByIdAndDelete(id);
+      const notification = await notificationService.deleteById(id);
 
       if (!notification) {
         res.status(404).json({
