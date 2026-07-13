@@ -10,6 +10,10 @@ import { apiLimiter } from "./middleware/rateLimiter.middleware";
 
 const app: Application = express();
 
+// Trust the first proxy hop (nginx) so req.ip reflects the real client IP
+// from X-Forwarded-For, rather than nginx's own container IP. Without this,
+// the rate limiter would bucket all traffic together as a single "client".
+app.set("trust proxy", 1);
 // Security headers
 app.use(helmet());
 
