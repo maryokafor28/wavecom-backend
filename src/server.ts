@@ -69,6 +69,7 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
     await disconnectDatabase();
 
     log.info("Graceful shutdown complete");
+    
     clearTimeout(forceExitTimer);
     process.exit(0);
   } catch (error) {

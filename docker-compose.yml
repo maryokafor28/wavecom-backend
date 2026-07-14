@@ -36,6 +36,8 @@ services:
       MONGODB_URI: mongodb://mongo:27017/wavecom-notifications
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
       REDIS_URL: redis://redis:6379
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
       LOG_LEVEL: info
     depends_on:
       mongo:

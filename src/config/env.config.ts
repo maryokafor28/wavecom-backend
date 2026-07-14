@@ -9,6 +9,8 @@ interface EnvConfig {
   mongodbUri: string;
   rabbitmqUrl: string;
   redisUrl: string;
+  resendApiKey: string;
+  emailFrom: string;
   nodeEnv: NodeEnv;
   logLevel: string;
   corsOrigin: string;
@@ -71,6 +73,8 @@ export const envConfig: EnvConfig = Object.freeze({
   redisUrl: validateRedisUrl(
     getEnvVariable("REDIS_URL", "redis://localhost:6379"),
   ),
+  resendApiKey: getEnvVariable("RESEND_API_KEY"),
+  emailFrom: getEnvVariable("EMAIL_FROM", "onboarding@resend.dev"),
   nodeEnv: parseNodeEnv(getEnvVariable("NODE_ENV", "development")),
   logLevel: getEnvVariable("LOG_LEVEL", "info"),
   corsOrigin: getEnvVariable("CORS_ORIGIN", "*"),
