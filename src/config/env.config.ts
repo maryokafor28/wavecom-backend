@@ -14,6 +14,9 @@ interface EnvConfig {
   twilioAccountSid: string;
   twilioAuthToken: string;
   twilioPhoneNumber: string;
+  firebaseProjectId: string;
+  firebaseClientEmail: string;
+  firebasePrivateKey: string;
   useRealSms: boolean;
   nodeEnv: NodeEnv;
   logLevel: string;
@@ -82,6 +85,12 @@ export const envConfig: EnvConfig = Object.freeze({
   twilioAccountSid: getEnvVariable("TWILIO_ACCOUNT_SID"),
   twilioAuthToken: getEnvVariable("TWILIO_AUTH_TOKEN"),
   twilioPhoneNumber: getEnvVariable("TWILIO_PHONE_NUMBER"),
+  firebaseProjectId: getEnvVariable("FIREBASE_PROJECT_ID"),
+  firebaseClientEmail: getEnvVariable("FIREBASE_CLIENT_EMAIL"),
+  firebasePrivateKey: getEnvVariable("FIREBASE_PRIVATE_KEY").replace(
+    /\\n/g,
+    "\n",
+  ),
   useRealSms: getEnvVariable("USE_REAL_SMS", "false") === "true",
   nodeEnv: parseNodeEnv(getEnvVariable("NODE_ENV", "development")),
   logLevel: getEnvVariable("LOG_LEVEL", "info"),
