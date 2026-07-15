@@ -42,14 +42,14 @@ class NotificationWorker {
         "Attempting to send notification",
       );
 
-      const success = await notificationService.send(
+      const result = await notificationService.send(
         notification.channel,
         notification.recipient,
         notification.message,
         notification.subject,
       );
 
-      if (success) {
+      if (result.success) {
         notification.status = "sent";
         notification.sentAt = new Date();
         await notification.save();
@@ -63,7 +63,7 @@ class NotificationWorker {
           "Notification sent successfully",
         );
       } else {
-        await this.safeHandleFailure(notification, attempt);
+        await this.safeHandleFailure(notification, attempt, result.error);
       }
     } catch (error) {
       const err = error as Error;

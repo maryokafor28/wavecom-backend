@@ -11,6 +11,10 @@ interface EnvConfig {
   redisUrl: string;
   resendApiKey: string;
   emailFrom: string;
+  twilioAccountSid: string;
+  twilioAuthToken: string;
+  twilioPhoneNumber: string;
+  useRealSms: boolean;
   nodeEnv: NodeEnv;
   logLevel: string;
   corsOrigin: string;
@@ -75,6 +79,10 @@ export const envConfig: EnvConfig = Object.freeze({
   ),
   resendApiKey: getEnvVariable("RESEND_API_KEY"),
   emailFrom: getEnvVariable("EMAIL_FROM", "onboarding@resend.dev"),
+  twilioAccountSid: getEnvVariable("TWILIO_ACCOUNT_SID"),
+  twilioAuthToken: getEnvVariable("TWILIO_AUTH_TOKEN"),
+  twilioPhoneNumber: getEnvVariable("TWILIO_PHONE_NUMBER"),
+  useRealSms: getEnvVariable("USE_REAL_SMS", "false") === "true",
   nodeEnv: parseNodeEnv(getEnvVariable("NODE_ENV", "development")),
   logLevel: getEnvVariable("LOG_LEVEL", "info"),
   corsOrigin: getEnvVariable("CORS_ORIGIN", "*"),

@@ -32,8 +32,20 @@ export class MockEmailProvider implements NotificationProvider {
   }
 }
 
-export class MockSmsProvider implements NotificationProvider {
-  async send(recipient: string, message: string): Promise<boolean> {
+// SMS gets its own result shape (rather than reusing NotificationProvider's
+// plain boolean) so the real failure reason — e.g. a Twilio trial limitation —
+// can be surfaced on the notification record instead of a generic message.
+export interface SmsSendResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface SmsNotificationProvider {
+  send(recipient: string, message: string): Promise<SmsSendResult>;
+}
+
+export class MockSmsProvider implements SmsNotificationProvider {
+  async send(recipient: string, message: string): Promise<SmsSendResult> {
     const delay = Math.random() * 200 + 100; // 100-300ms
     await new Promise((resolve) => setTimeout(resolve, delay));
 
@@ -41,11 +53,12 @@ export class MockSmsProvider implements NotificationProvider {
 
     if (success) {
       log.info({ recipient }, "SMS sent (mock)");
-    } else {
-      log.warn({ recipient }, "SMS failed (mock)");
+      return { success: true };
     }
 
-    return success;
+    const error = "Mock SMS provider simulated failure";
+    log.warn({ recipient }, "SMS failed (mock)");
+    return { success: false, error };
   }
 }
 

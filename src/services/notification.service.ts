@@ -10,10 +10,13 @@ import Notification from "../models/notification.model";
 import { queueService } from "./queue.service";
 import {
   NotificationProvider,
+  SmsNotificationProvider,
   MockSmsProvider,
   MockPushProvider,
   ResendEmailProvider,
 } from "./providers/notification.providers";
+import { TwilioSmsProvider } from "./providers/twilioSms.provider";
+import { envConfig } from "../config/env.config";
 
 const log = logger.child({ module: "notification-service" });
 
@@ -35,15 +38,24 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   }
 }
 
+interface SendResult {
+  success: boolean;
+  error?: string;
+}
+
 class NotificationService {
-  // Provider selection point — this is the only place that changes when
-  // you swap a mock for a real provider. In prod, envConfig.nodeEnv can
-  // gate which class gets instantiated here.
-  private providers: Record<NotificationChannel, NotificationProvider> = {
+  // Provider selection point — email/push stay on the original
+  // boolean-returning NotificationProvider interface. SMS gets its own
+  // provider + result type so a real failure reason (e.g. a Twilio trial
+  // limitation) can be surfaced on the notification record.
+  private providers: Record<"email" | "push", NotificationProvider> = {
     email: new ResendEmailProvider(),
-    sms: new MockSmsProvider(),
     push: new MockPushProvider(),
   };
+
+  private smsProvider: SmsNotificationProvider = envConfig.useRealSms
+    ? new TwilioSmsProvider()
+    : new MockSmsProvider();
 
   // --- Sending ---
 
@@ -52,27 +64,39 @@ class NotificationService {
     recipient: string,
     message: string,
     subject?: string,
-  ): Promise<boolean> {
+  ): Promise<SendResult> {
     log.info({ channel, recipient }, "Sending notification");
 
-    const provider = this.providers[channel];
-
-    if (!provider) {
-      log.error({ channel }, "Unsupported notification channel");
-      return false;
-    }
-
     try {
-      return await withTimeout(
+      if (channel === "sms") {
+        return await withTimeout(
+          this.smsProvider.send(recipient, message),
+          SEND_TIMEOUT_MS,
+        );
+      }
+
+      const provider = this.providers[channel];
+
+      if (!provider) {
+        log.error({ channel }, "Unsupported notification channel");
+        return {
+          success: false,
+          error: `Unsupported notification channel: ${channel}`,
+        };
+      }
+
+      const success = await withTimeout(
         provider.send(recipient, message, subject),
         SEND_TIMEOUT_MS,
       );
+      return { success };
     } catch (error) {
+      const errMessage = error instanceof Error ? error.message : String(error);
       log.error(
         { err: error, channel, recipient },
         "Error in notification provider",
       );
-      return false;
+      return { success: false, error: errMessage };
     }
   }
 

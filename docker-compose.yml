@@ -8,6 +8,12 @@ services:
       MONGODB_URI: mongodb://mongo:27017/wavecom-notifications
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
       REDIS_URL: redis://redis:6379
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+      USE_REAL_SMS: ${USE_REAL_SMS}
       LOG_LEVEL: info
     depends_on:
       mongo:
@@ -38,6 +44,10 @@ services:
       REDIS_URL: redis://redis:6379
       RESEND_API_KEY: ${RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+      USE_REAL_SMS: ${USE_REAL_SMS}
       LOG_LEVEL: info
     depends_on:
       mongo:
@@ -55,7 +65,7 @@ services:
       - mongo-data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
+      interval: 15s
       timeout: 5s
       retries: 5
 
@@ -67,7 +77,7 @@ services:
       - "15673:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
-      interval: 5s
+      interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
@@ -78,7 +88,7 @@ services:
       - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 15s
       timeout: 5s
       retries: 5
 
