@@ -13,7 +13,10 @@ import {
   SmsNotificationProvider,
 } from "./providers/types";
 import { ResendEmailProvider } from "./providers/email/resend.provider";
-import { MockPushProvider } from "./providers/push/firebase.provider";
+import {
+  MockPushProvider,
+  FirebasePushProvider,
+} from "./providers/push/firebase.provider";
 import {
   TwilioSmsProvider,
   MockSmsProvider,
@@ -52,7 +55,9 @@ class NotificationService {
   // limitation) can be surfaced on the notification record.
   private providers: Record<"email" | "push", NotificationProvider> = {
     email: new ResendEmailProvider(),
-    push: new MockPushProvider(),
+    push: envConfig.useRealPush
+      ? new FirebasePushProvider()
+      : new MockPushProvider(),
   };
 
   private smsProvider: SmsNotificationProvider = envConfig.useRealSms

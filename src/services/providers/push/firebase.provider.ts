@@ -1,3 +1,6 @@
+import { initializeApp, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
+import { envConfig } from "../../../config/env.config";
 import { logger } from "../../../config/logger";
 import { NotificationProvider } from "../types";
 
@@ -17,5 +20,37 @@ export class MockPushProvider implements NotificationProvider {
     }
 
     return success;
+  }
+}
+// Initialize once at module scope, same pattern as resendClient/twilioClient.
+const firebaseApp = initializeApp({
+  credential: cert({
+    projectId: envConfig.firebaseProjectId,
+    clientEmail: envConfig.firebaseClientEmail,
+    privateKey: envConfig.firebasePrivateKey,
+  }),
+});
+
+export class FirebasePushProvider implements NotificationProvider {
+  async send(
+    recipient: string,
+    message: string,
+    subject = "Notification",
+  ): Promise<boolean> {
+    try {
+      const response = await getMessaging(firebaseApp).send({
+        token: recipient,
+        notification: {
+          title: subject,
+          body: message,
+        },
+      });
+
+      log.info({ recipient, messageId: response }, "Push sent (Firebase)");
+      return true;
+    } catch (error) {
+      log.error({ err: error, recipient }, "Error calling Firebase");
+      return false;
+    }
   }
 }

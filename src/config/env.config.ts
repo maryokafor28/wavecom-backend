@@ -17,6 +17,7 @@ interface EnvConfig {
   firebaseProjectId: string;
   firebaseClientEmail: string;
   firebasePrivateKey: string;
+  useRealPush: boolean;
   useRealSms: boolean;
   nodeEnv: NodeEnv;
   logLevel: string;
@@ -91,6 +92,7 @@ export const envConfig: EnvConfig = Object.freeze({
     /\\n/g,
     "\n",
   ),
+  useRealPush: getEnvVariable("USE_REAL_PUSH", "false") === "true",
   useRealSms: getEnvVariable("USE_REAL_SMS", "false") === "true",
   nodeEnv: parseNodeEnv(getEnvVariable("NODE_ENV", "development")),
   logLevel: getEnvVariable("LOG_LEVEL", "info"),
