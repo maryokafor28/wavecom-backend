@@ -11,11 +11,13 @@ import { queueService } from "./queue.service";
 import {
   NotificationProvider,
   SmsNotificationProvider,
+} from "./providers/types";
+import { ResendEmailProvider } from "./providers/email/resend.provider";
+import { MockPushProvider } from "./providers/push/firebase.provider";
+import {
+  TwilioSmsProvider,
   MockSmsProvider,
-  MockPushProvider,
-  ResendEmailProvider,
-} from "./providers/notification.providers";
-import { TwilioSmsProvider } from "./providers/twilioSms.provider";
+} from "./providers/sms/twilioSms.provider";
 import { envConfig } from "../config/env.config";
 
 const log = logger.child({ module: "notification-service" });
