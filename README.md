@@ -511,20 +511,22 @@ Good instinct — let's ground this entirely in things you actually built and ca
 
 ---
 
-```markdown
 ## Design Defense
 
 ### 1. Why a Message Queue Instead of Sending Directly from the API?
 
 **Without a queue (synchronous):**
+
 ```
 
 Client → API → Send via provider (200ms–3s) → Response
 
 ```
+
 The client waits for the full provider round-trip, the API is blocked for that duration, and a provider outage directly takes down API response times.
 
 **With a queue (this system's actual design):**
+
 ```
 
 Client → API → Save + Publish to RabbitMQ → Response (near-instant)
@@ -532,6 +534,7 @@ Client → API → Save + Publish to RabbitMQ → Response (near-instant)
 Worker → Send via provider
 
 ```
+
 The API returns as soon as the notification is persisted and queued — it never waits on the provider. This was verified directly: notifications consistently return `201 Created` immediately, with the actual send (and any retries) happening asynchronously, visible only by polling `GET /api/notifications/:id` afterward.
 
 **Why RabbitMQ specifically:** persistent, durable messages (verified — messages survive without being lost across restarts in testing), a dead-letter queue for exhausted retries, and independent horizontal scaling of workers without touching the API.
@@ -541,12 +544,13 @@ The API returns as soon as the notification is persisted and queued — it never
 Statelessness was a deliberate design constraint, not just an assumption — every piece of state that could have lived in-process (rate-limit counters, cached responses) was deliberately pushed into Redis instead.
 
 This was verified concretely, not just claimed:
+
 - **Load balancing test:** nginx, load-balancing round-robin across 3 API replicas, was observed distributing sequential requests across all 3 instances (`api-1 → api-3 → api-1 → api-3 → api-2 → api-2` across 6 requests)
 - **Shared rate limiting test:** a 100-request rate limit was enforced as a single global count across all 3 replicas simultaneously — 100 requests succeeded, the 101st onward returned `429`, proving the limit is genuinely shared via Redis rather than tracked independently per replica (which would have allowed ~300 successes)
 
 ### 3. How Does the System Handle Provider Failures Without Losing Information?
 
-A common failure mode in systems like this is swallowing the real reason a send failed and replacing it with a generic message — which makes debugging (and demonstrating *why* something failed) impossible.
+A common failure mode in systems like this is swallowing the real reason a send failed and replacing it with a generic message — which makes debugging (and demonstrating _why_ something failed) impossible.
 
 This system was specifically built to avoid that, for SMS: `TwilioSmsProvider` returns the real error string from Twilio's API, which flows through `NotificationService.send()` and the worker's failure handler, and is stored directly on the notification record. This was verified end-to-end: a deliberately invalid Twilio `from` number produced the exact error `"Twilio: 'From' +1234567890 is not a Twilio phone number or Short Code country mismatch"` stored in the notification's `error` field — a genuine, specific third-party error, not a placeholder like `"Provider returned failure"`.
 
@@ -565,4 +569,7 @@ Self-hosting MongoDB, RabbitMQ, and Redis on the same VM as the application woul
 ### 7. What's the Known, Acknowledged Limitation of This Deployment?
 
 The application layer (nginx + 3 API replicas + worker) still runs on a **single VM**. While each of the 3 API replicas can individually fail without taking the others down (proven above), a failure of the underlying VM itself would take down all of them simultaneously, since they share the same physical/virtual host. The managed data/messaging services are unaffected by this specific failure mode, but the application layer itself is not yet distributed across multiple hosts. The natural next step for true host-level fault tolerance would be an orchestrator like Kubernetes or Docker Swarm, scheduling replicas across genuinely separate machines — a deliberate scope boundary for this project, not an oversight.
+
+```
+
 ```
