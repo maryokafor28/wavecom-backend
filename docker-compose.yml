@@ -3,70 +3,79 @@ services:
     build: .
     command: node dist/server.js
     environment:
-      PORT: 3000
-      NODE_ENV: development
-      MONGODB_URI: mongodb://mongo:27017/wavecom-notifications
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      REDIS_URL: redis://redis:6379
+      PORT: ${PORT}
+      NODE_ENV: ${NODE_ENV}
+      MONGODB_URI: ${MONGODB_URI}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      REDIS_URL: ${REDIS_URL}
       RESEND_API_KEY: ${RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
-      USE_REAL_SMS: ${USE_REAL_SMS}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
       FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      USE_REAL_SMS: ${USE_REAL_SMS}
       USE_REAL_PUSH: ${USE_REAL_PUSH}
-      LOG_LEVEL: info
+      LOG_LEVEL: ${LOG_LEVEL}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+    deploy:
+      replicas: 3
     depends_on:
       mongo:
         condition: service_healthy
+        required: false
       rabbitmq:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
-    deploy:
-      replicas: 3
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "3000:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - api
+        required: false
 
   worker:
     build: .
     command: node dist/workers/notificationWorker.js
     environment:
-      NODE_ENV: development
-      MONGODB_URI: mongodb://mongo:27017/wavecom-notifications
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV}
+      MONGODB_URI: ${MONGODB_URI}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      REDIS_URL: ${REDIS_URL}
       RESEND_API_KEY: ${RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
-      USE_REAL_SMS: ${USE_REAL_SMS}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
       FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      USE_REAL_SMS: ${USE_REAL_SMS}
       USE_REAL_PUSH: ${USE_REAL_PUSH}
-      LOG_LEVEL: info
+      LOG_LEVEL: ${LOG_LEVEL}
     depends_on:
       mongo:
         condition: service_healthy
+        required: false
       rabbitmq:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
+        required: false
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
 
   mongo:
     image: mongo:7
+    profiles:
+      - local
     ports:
       - "27017:27017"
     volumes:
@@ -79,19 +88,21 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: wavecom_rabbitmq
+    profiles:
+      - local
     ports:
-      - "5673:5672" # Left as 5673 mapping on host, maps to 5672 internally
+      - "5673:5672"
       - "15673:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 15s
 
   redis:
     image: redis:7-alpine
+    profiles:
+      - local
     ports:
       - "6379:6379"
     healthcheck:
