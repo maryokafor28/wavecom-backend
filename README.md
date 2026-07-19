@@ -40,6 +40,36 @@ WaveCom is a communications platform serving clients who require:
 
 ---
 
+## System Architecture
+
+![WaveCom request architecture](./docs/diagrams/wavecom_architecture_diagram.drawio.svg)
+
+The client sends all requests through **nginx**, which load-balances across three stateless API replicas running inside a single Docker Compose deployment on an Oracle Cloud VM. Every API replica shares the same Redis instance for rate limiting and caching, and the same MongoDB and RabbitMQ instances for persistence and queueing — meaning any replica can serve any request with identical results.
+
+The **worker** process runs independently, consuming from RabbitMQ and calling out to whichever notification provider (Resend, Twilio, or Firebase) matches the notification's channel. The API and worker never call providers directly or synchronously — every send happens asynchronously, off the request path.
+
+### Request Lifecycle
+
+The full request-to-delivery sequence, across every component:
+
+![WaveCom request sequence](./docs/diagrams/wavecom_sequence_diagram.drawio.svg)
+
+1. **Client → API**: a `POST /api/notifications` request arrives at whichever replica nginx routes it to
+2. **Rate limit check**: the API checks the request against a Redis-backed rate limit, shared across all replicas — not tracked independently per instance
+3. **Persist + queue**: the notification is saved to MongoDB (`status: pending`), published to RabbitMQ, and its status updated to `queued` — the API responds `201 Created` at this point, without waiting on delivery
+4. **Worker picks it up**: consumes the message, updates status to `processing`, and calls the matching provider
+5. **Result handling**:
+   - **Success** → status set to `sent`
+   - **Failure** → retried with exponential backoff (up to `maxAttempts`), or marked `failed` with the real provider error message stored on the record
+
+### Why This Shape
+
+- **Stateless API layer**: any replica can be added, removed, or replaced without coordination — verified directly by observing requests landing across all three replicas under nginx's round-robin routing, and by confirming a rate limit was enforced as one shared count across all three, not three independent counts
+- **Async processing via queue**: the API never blocks on a provider call — a slow or failing provider affects worker throughput, not API response times
+- **Managed data/messaging services**: MongoDB Atlas, Redis Cloud, and CloudAMQP handle their own replication and failover, rather than this project self-hosting single points of failure
+
+---
+
 ## Components and Responsibilities
 
 ### 1. nginx (Reverse Proxy / Load Balancer)
