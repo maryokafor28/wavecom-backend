@@ -7,6 +7,25 @@ import {
   NOTIFICATION_STATUSES,
 } from "../types";
 
+const StatusHistorySchema = new Schema(
+  {
+    status: {
+      type: String,
+      enum: NOTIFICATION_STATUSES,
+      required: true,
+    },
+    timestamp: {
+      type: Date,
+      required: true,
+    },
+    detail: {
+      type: String,
+      maxlength: [500, "Status history detail exceeds maximum length"],
+    },
+  },
+  { _id: false },
+);
+
 const NotificationSchema = new Schema<INotification>(
   {
     recipient: {
@@ -62,6 +81,22 @@ const NotificationSchema = new Schema<INotification>(
     metadata: {
       type: Schema.Types.Mixed,
     },
+    recipientId: {
+      type: String,
+      default: null,
+    },
+    provider: {
+      type: String,
+      default: null,
+    },
+    latency: {
+      type: Number,
+      default: null,
+    },
+    statusHistory: {
+      type: [StatusHistorySchema],
+      default: [],
+    },
   },
   {
     timestamps: true,
@@ -71,6 +106,7 @@ const NotificationSchema = new Schema<INotification>(
 NotificationSchema.index({ status: 1, createdAt: -1 });
 NotificationSchema.index({ recipient: 1 });
 NotificationSchema.index({ channel: 1, status: 1 });
+NotificationSchema.index({ recipientId: 1, createdAt: -1 }); // new — recipient dashboard query
 
 const Notification: Model<INotification> = mongoose.model<INotification>(
   "Notification",

@@ -48,10 +48,13 @@ export interface INotification extends Document {
   failedAt?: Date;
   error?: string;
   metadata?: Record<string, any>;
+  recipientId?: string | null;
+  provider?: string | null;
+  latency?: number | null;
+  statusHistory: IStatusHistoryEntry[];
   createdAt: Date;
   updatedAt: Date;
 }
-
 // Request body for creating notification
 export interface ICreateNotificationRequest {
   recipient: string;
@@ -59,6 +62,7 @@ export interface ICreateNotificationRequest {
   channel: NotificationChannel;
   subject?: string;
   metadata?: Record<string, any>;
+  recipientId?: string;
 }
 
 // Queue message structure
@@ -83,4 +87,11 @@ export interface ICreateRecipientRequest {
   email: string;
   phone?: string;
   preferredChannel?: NotificationChannel;
+}
+
+// A single status transition, recorded for timeline/event-log display
+export interface IStatusHistoryEntry {
+  status: NotificationStatus;
+  timestamp: Date;
+  detail?: string; // e.g. "retry 2/3", or a real provider error snippet
 }
