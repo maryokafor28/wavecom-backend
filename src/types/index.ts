@@ -66,3 +66,21 @@ export interface IQueueMessage {
   notificationId: string;
   attempt: number;
 }
+// Recipient document (what gets stored in MongoDB)
+export interface IRecipient extends Document {
+  name: string;
+  email: string;
+  phone?: string;
+  pushToken?: string;
+  preferredChannel: NotificationChannel;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Request body for creating a recipient
+export interface ICreateRecipientRequest {
+  name: string;
+  email: string;
+  phone?: string;
+  preferredChannel?: NotificationChannel;
+}
