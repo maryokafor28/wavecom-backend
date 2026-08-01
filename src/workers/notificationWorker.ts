@@ -31,6 +31,11 @@ class NotificationWorker {
       notification.status = "processing";
       notification.attempts = attempt;
       notification.lastAttemptAt = new Date();
+      notification.statusHistory.push({
+        status: "processing",
+        timestamp: new Date(),
+        detail: `Attempt ${attempt}/${notification.maxAttempts}`,
+      });
       await notification.save();
 
       log.info(
@@ -49,9 +54,19 @@ class NotificationWorker {
         notification.subject,
       );
 
+      notification.provider = result.provider;
+
       if (result.success) {
+        const sentAt = new Date();
         notification.status = "sent";
-        notification.sentAt = new Date();
+        notification.sentAt = sentAt;
+        notification.latency =
+          sentAt.getTime() - notification.createdAt.getTime();
+        notification.statusHistory.push({
+          status: "sent",
+          timestamp: sentAt,
+          detail: `via ${result.provider}`,
+        });
         await notification.save();
 
         log.info(
@@ -59,6 +74,7 @@ class NotificationWorker {
             notificationId,
             channel: notification.channel,
             recipient: notification.recipient,
+            latency: notification.latency,
           },
           "Notification sent successfully",
         );
@@ -136,6 +152,11 @@ class NotificationWorker {
 
       notification.status = "queued";
       notification.error = errorMessage || "Provider returned failure";
+      notification.statusHistory.push({
+        status: "queued",
+        timestamp: new Date(),
+        detail: `Retry ${nextAttempt}/${notification.maxAttempts} scheduled — ${notification.error}`,
+      });
       await notification.save();
     } else {
       log.warn(
@@ -150,6 +171,11 @@ class NotificationWorker {
       notification.failedAt = new Date();
       notification.error =
         errorMessage || `Failed after ${notification.maxAttempts} attempts`;
+      notification.statusHistory.push({
+        status: "failed",
+        timestamp: notification.failedAt,
+        detail: notification.error,
+      });
       await notification.save();
     }
   }

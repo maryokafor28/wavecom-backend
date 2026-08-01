@@ -46,6 +46,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 interface SendResult {
   success: boolean;
   error?: string;
+  provider: string; // which concrete provider actually handled this send
 }
 
 class NotificationService {
@@ -64,6 +65,14 @@ class NotificationService {
     ? new TwilioSmsProvider()
     : new MockSmsProvider();
 
+  // Provider name, resolved once, used to tag every notification with
+  // which concrete implementation actually handled it.
+  private providerNames: Record<NotificationChannel, string> = {
+    email: "resend",
+    sms: envConfig.useRealSms ? "twilio" : "mock",
+    push: envConfig.useRealPush ? "firebase" : "mock",
+  };
+
   // --- Sending ---
 
   async send(
@@ -74,36 +83,40 @@ class NotificationService {
   ): Promise<SendResult> {
     log.info({ channel, recipient }, "Sending notification");
 
+    const provider = this.providerNames[channel];
+
     try {
       if (channel === "sms") {
-        return await withTimeout(
+        const result = await withTimeout(
           this.smsProvider.send(recipient, message),
           SEND_TIMEOUT_MS,
         );
+        return { ...result, provider };
       }
 
-      const provider = this.providers[channel];
+      const channelProvider = this.providers[channel];
 
-      if (!provider) {
+      if (!channelProvider) {
         log.error({ channel }, "Unsupported notification channel");
         return {
           success: false,
           error: `Unsupported notification channel: ${channel}`,
+          provider,
         };
       }
 
       const success = await withTimeout(
-        provider.send(recipient, message, subject),
+        channelProvider.send(recipient, message, subject),
         SEND_TIMEOUT_MS,
       );
-      return { success };
+      return { success, provider };
     } catch (error) {
       const errMessage = error instanceof Error ? error.message : String(error);
       log.error(
         { err: error, channel, recipient },
         "Error in notification provider",
       );
-      return { success: false, error: errMessage };
+      return { success: false, error: errMessage, provider };
     }
   }
 
@@ -113,11 +126,14 @@ class NotificationService {
     notification: HydratedDocument<INotification>;
     queueError: boolean;
   }> {
+    const now = new Date();
+
     const notification = await Notification.create({
       ...data,
       status: "pending",
       attempts: 0,
       maxAttempts: 3,
+      statusHistory: [{ status: "pending", timestamp: now }],
     });
 
     log.info({ notificationId: notification._id }, "Notification created");
@@ -131,6 +147,10 @@ class NotificationService {
       await queueService.publishToQueue(queueMessage);
 
       notification.status = "queued";
+      notification.statusHistory.push({
+        status: "queued",
+        timestamp: new Date(),
+      });
       await notification.save();
 
       return { notification, queueError: false };
@@ -144,6 +164,11 @@ class NotificationService {
 
       notification.status = "failed";
       notification.error = "Failed to queue notification for processing";
+      notification.statusHistory.push({
+        status: "failed",
+        timestamp: new Date(),
+        detail: "Failed to queue notification for processing",
+      });
       await notification.save();
 
       return { notification, queueError: true };

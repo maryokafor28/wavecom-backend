@@ -8,6 +8,7 @@ interface EnvConfig {
   port: number;
   mongodbUri: string;
   rabbitmqUrl: string;
+  rabbitmqManagementUrl: string;
   redisUrl: string;
   resendApiKey: string;
   emailFrom: string;
@@ -74,10 +75,22 @@ const validateRedisUrl = (url: string): string => {
   return url;
 };
 
+const validateManagementUrl = (url: string): string => {
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    throw new Error(
+      "RABBITMQ_MANAGEMENT_URL must start with http:// or https://",
+    );
+  }
+  return url.replace(/\/$/, ""); // strip any trailing slash for consistent concatenation later
+};
+
 export const envConfig: EnvConfig = Object.freeze({
   port: parsePort(getEnvVariable("PORT", "3000")),
   mongodbUri: validateMongoUri(getEnvVariable("MONGODB_URI")),
   rabbitmqUrl: validateRabbitmqUrl(getEnvVariable("RABBITMQ_URL")),
+  rabbitmqManagementUrl: validateManagementUrl(
+    getEnvVariable("RABBITMQ_MANAGEMENT_URL", "http://localhost:15673"),
+  ),
   redisUrl: validateRedisUrl(
     getEnvVariable("REDIS_URL", "redis://localhost:6379"),
   ),

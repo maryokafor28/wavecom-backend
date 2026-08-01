@@ -4,6 +4,7 @@ import helmet from "helmet";
 import pinoHttp from "pino-http";
 import notificationRoutes from "./routes/notification.routes";
 import recipientRoutes from "./routes/recipient.routes";
+import queueRoutes from "./routes/queue.routes";
 import { envConfig } from "./config/env.config";
 import { logger } from "./config/logger";
 import { notFoundHandler, errorHandler } from "./middleware/error.middleware";
@@ -45,6 +46,7 @@ app.get("/health", (req: Request, res: Response) => {
 // API Routes
 app.use("/api/notifications", apiLimiter, notificationRoutes);
 app.use("/api/recipients", apiLimiter, recipientRoutes);
+app.use("/api/queue", apiLimiter, queueRoutes);
 // 404 handler — after all real routes
 app.use(notFoundHandler);
 
