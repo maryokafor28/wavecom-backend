@@ -127,6 +127,48 @@ class RecipientController {
       });
     }
   }
+
+  async updatePushToken(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { pushToken } = req.body;
+
+      if (!pushToken || typeof pushToken !== "string") {
+        res.status(400).json({
+          status: "error",
+          message: "Missing or invalid field: pushToken",
+        });
+        return;
+      }
+
+      const recipient = await recipientService.updatePushToken(id, pushToken);
+
+      if (!recipient) {
+        res.status(404).json({
+          status: "error",
+          message: "Recipient not found",
+        });
+        return;
+      }
+
+      log.info({ recipientId: id }, "Recipient push token updated");
+
+      res.status(200).json({
+        status: "success",
+        message: "Push token updated",
+        data: {
+          id: recipient._id,
+          pushToken: recipient.pushToken,
+        },
+      });
+    } catch (error) {
+      log.error({ err: error }, "Error updating push token");
+      res.status(500).json({
+        status: "error",
+        message: "Failed to update push token",
+      });
+    }
+  }
 }
 
 export const recipientController = new RecipientController();

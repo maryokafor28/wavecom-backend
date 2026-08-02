@@ -61,6 +61,17 @@ class RecipientService {
   async deleteById(id: string): Promise<HydratedDocument<IRecipient> | null> {
     return Recipient.findByIdAndDelete(id);
   }
+
+  async updatePushToken(
+    id: string,
+    pushToken: string,
+  ): Promise<HydratedDocument<IRecipient> | null> {
+    return Recipient.findByIdAndUpdate(
+      id,
+      { pushToken },
+      { new: true }, // return the updated document, not the pre-update one
+    );
+  }
 }
 
 export const recipientService = new RecipientService();

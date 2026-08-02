@@ -16,5 +16,9 @@ router.get("/", (req, res) => recipientController.listRecipients(req, res));
 router.delete("/:id", (req, res) =>
   recipientController.deleteRecipient(req, res),
 );
+// PATCH /api/recipients/:id/push-token - Register/update FCM device token
+router.patch("/:id/push-token", (req, res) =>
+  recipientController.updatePushToken(req, res),
+);
 
 export default router;

@@ -126,7 +126,13 @@ class NotificationController {
   }
   async listNotifications(req: Request, res: Response): Promise<void> {
     try {
-      const { status, channel, page = "1", limit = "20" } = req.query;
+      const {
+        status,
+        channel,
+        recipientId,
+        page = "1",
+        limit = "20",
+      } = req.query;
       const cacheKey = cacheService.buildListKey(
         req.query as Record<string, unknown>,
       );
@@ -140,6 +146,7 @@ class NotificationController {
       const filter: Record<string, unknown> = {};
       if (status) filter.status = status;
       if (channel) filter.channel = channel;
+      if (recipientId) filter.recipientId = recipientId; // ← new
 
       const { pageNum, limitNum } = parsePagination(page, limit);
 
@@ -153,9 +160,12 @@ class NotificationController {
         notifications: notifications.map((notif) => ({
           id: notif._id,
           recipient: notif.recipient,
+          recipientId: notif.recipientId, // ← added to response
           channel: notif.channel,
           status: notif.status,
+          provider: notif.provider, // ← added to response
           attempts: notif.attempts,
+          latency: notif.latency, // ← added to response
           createdAt: notif.createdAt,
           sentAt: notif.sentAt,
           failedAt: notif.failedAt,
