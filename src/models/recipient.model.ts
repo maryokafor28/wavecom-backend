@@ -42,8 +42,6 @@ const RecipientSchema = new Schema<IRecipient>(
   },
 );
 
-RecipientSchema.index({ email: 1 });
-
 const Recipient: Model<IRecipient> = mongoose.model<IRecipient>(
   "Recipient",
   RecipientSchema,

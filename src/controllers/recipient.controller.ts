@@ -33,7 +33,15 @@ class RecipientController {
           createdAt: recipient.createdAt,
         },
       });
-    } catch (error) {
+    } catch (error: any) {
+      if (error.code === 11000) {
+        res.status(409).json({
+          status: "error",
+          message: "A recipient with this email already exists",
+        });
+        return;
+      }
+
       log.error({ err: error }, "Error creating recipient");
       res.status(500).json({
         status: "error",

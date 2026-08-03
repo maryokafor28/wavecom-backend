@@ -37,7 +37,7 @@ class RecipientService {
       channel: "email",
       subject: "Welcome to WaveCom",
       message: buildWelcomeEmailBody(recipient.name),
-      metadata: { recipientId: recipient._id.toString() },
+      recipientId: recipient._id.toString(),
     });
 
     if (queueError) {

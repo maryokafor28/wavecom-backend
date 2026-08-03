@@ -12,7 +12,14 @@ const log = logger.child({ module: "notification-worker" });
 class NotificationWorker {
   async processNotification(queueMessage: IQueueMessage): Promise<void> {
     const { notificationId, attempt } = queueMessage;
-
+    log.info(
+      {
+        notificationId,
+        attempt,
+        queueMessage,
+      },
+      "Queue message received",
+    );
     log.info({ notificationId, attempt }, "Processing notification");
 
     try {
@@ -60,6 +67,11 @@ class NotificationWorker {
         const sentAt = new Date();
         notification.status = "sent";
         notification.sentAt = sentAt;
+        log.info(
+          { createdAt: notification.createdAt, sentAtNow: sentAt },
+          "DEBUG latency calc",
+        );
+
         notification.latency =
           sentAt.getTime() - notification.createdAt.getTime();
         notification.statusHistory.push({
