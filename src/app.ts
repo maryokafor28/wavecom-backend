@@ -34,6 +34,16 @@ app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 // status, and duration, using the same Pino instance as the rest of the app.
 app.use(pinoHttp({ logger }));
 
+// Root endpoint — a friendly landing response instead of a 404 for anyone
+// hitting the bare domain directly.
+app.get("/", (req: Request, res: Response) => {
+  res.status(200).json({
+    status: "success",
+    message: "WaveCom Notification API",
+    docs: "See /health for status, /api/notifications for the API",
+  });
+});
+
 // Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
   res.status(200).json({

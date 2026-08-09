@@ -103,8 +103,6 @@ class NotificationController {
         channel: notification.channel,
         subject: notification.subject,
         status: notification.status,
-        provider: notification.provider,
-        latency: notification.latency,
         attempts: notification.attempts,
         maxAttempts: notification.maxAttempts,
         lastAttemptAt: notification.lastAttemptAt,
