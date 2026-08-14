@@ -55,7 +55,7 @@ The **worker** process runs independently, consuming from RabbitMQ and calling o
 
 The full request-to-delivery sequence, across every component:
 
-![WaveCom request sequence](./docs/diagrams/wavecom_sequence_diagram.drawio.svg)
+![WaveCom request sequence](./docs/diagrams/wavecom_sequence_diagram_v2.drawio.svg)
 
 1. **Client → API**: a `POST /api/notifications` request arrives at whichever replica nginx routes it to
 2. **Rate limit check**: the API checks the request against a Redis-backed rate limit, shared across all replicas — not tracked independently per instance
