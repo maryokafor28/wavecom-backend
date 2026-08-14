@@ -62,14 +62,19 @@ The full request-to-delivery sequence, across every component:
 3. **Persist + queue**: the notification is saved to MongoDB (`status: pending`), published to RabbitMQ, and its status updated to `queued` — the API responds `201 Created` at this point, without waiting on delivery
 4. **Worker picks it up**: consumes the message, updates status to `processing`, and calls the matching provider
 5. **Result handling**:
-   - **Success** → status set to `sent`
-   - **Failure** → retried with exponential backoff (up to `maxAttempts`), or marked `failed` with the real provider error message stored on the record
+   - **Success** → status set to `sent`, with `provider` and `latency` (delivery time) recorded on the record
+   - **Failure, retries remaining** → the worker waits (exponential backoff), re-publishes the message with an incremented attempt count, and status returns to `queued` — looping back through the same consume → process cycle
+   - **Failure, max attempts reached** → status set to `failed`, with the real provider error message stored on the record
+
+The same pipeline also handles **recipient welcome emails**: `POST /api/recipients` creates the recipient, then calls this exact flow to send a welcome email — no separate event system.
 
 ### Why This Shape
 
 - **Stateless API layer**: any replica can be added, removed, or replaced without coordination — verified directly by observing requests landing across all three replicas under nginx's round-robin routing, and by confirming a rate limit was enforced as one shared count across all three, not three independent counts
 - **Async processing via queue**: the API never blocks on a provider call — a slow or failing provider affects worker throughput, not API response times
 - **Managed data/messaging services**: MongoDB Atlas, Redis Cloud, and CloudAMQP handle their own replication and failover, rather than this project self-hosting single points of failure
+
+---
 
 ---
 
