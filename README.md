@@ -1,6 +1,9 @@
 # WaveCom Notification Delivery System
 
 A scalable, fault-tolerant notification delivery system for transactional notifications (email, SMS, and push), built with a stateless, horizontally-scaled API layer, async queue-based processing, and pluggable real/mock provider integrations.
+🔗 **Live:** [https://wavecom.maryamadi.com](https://wavecom.maryamadi.com)
+
+Try it: `GET https://wavecom.maryamadi.com/health`
 
 ## Table of Contents
 
@@ -213,21 +216,29 @@ The full request-to-delivery sequence, across every component:
 
 ## API Design
 
-Full API documentation, including request/response examples for every endpoint, is maintained as a **Postman collection**.
+Full API documentation, including request/response examples for every endpoint, is published as a live Postman collection:
 
-📎 **Postman Collection:** _[link to be added once deployed]_
+📎 **Postman Docs:** [https://documenter.getpostman.com/view/48798242/2sBY4WoGeP](https://documenter.getpostman.com/view/48798242/2sBY4WoGeP)
 
 ### Quick Reference
 
-| Method   | Endpoint                 | Description                                                                        |
-| -------- | ------------------------ | ---------------------------------------------------------------------------------- |
-| `POST`   | `/api/notifications`     | Create a new notification and queue it for delivery                                |
-| `GET`    | `/api/notifications/:id` | Get the status and details of a single notification                                |
-| `GET`    | `/api/notifications`     | List notifications, with optional filtering by `status` / `channel` and pagination |
-| `DELETE` | `/api/notifications/:id` | Delete a notification                                                              |
-| `GET`    | `/health`                | Health check endpoint                                                              |
+| Method   | Endpoint                         | Description                                                          |
+| -------- | -------------------------------- | -------------------------------------------------------------------- |
+| `GET`    | `/health`                        | Health check                                                         |
+| `POST`   | `/api/notifications`             | Create and queue a notification                                      |
+| `GET`    | `/api/notifications/:id`         | Get a single notification                                            |
+| `GET`    | `/api/notifications`             | List notifications, filterable by `status`, `channel`, `recipientId` |
+| `DELETE` | `/api/notifications/:id`         | Delete a notification                                                |
+| `GET`    | `/api/notifications/stats`       | Delivery totals, delivery rate, avg delivery time, retry rate        |
+| `GET`    | `/api/notifications/analytics`   | Last-24h hourly counts, channel breakdown, per-channel success rate  |
+| `POST`   | `/api/recipients`                | Create a recipient (auto-sends a welcome email)                      |
+| `GET`    | `/api/recipients/:id`            | Get a single recipient                                               |
+| `GET`    | `/api/recipients`                | List recipients                                                      |
+| `DELETE` | `/api/recipients/:id`            | Delete a recipient                                                   |
+| `PATCH`  | `/api/recipients/:id/push-token` | Register/update a Firebase push token                                |
+| `GET`    | `/api/queue/stats`               | Live RabbitMQ queue depth and consumer counts                        |
 
-> **Rate limiting:** `/api/notifications` routes are rate-limited per client (100 requests / 15 minutes by default), enforced consistently across all API replicas via a shared Redis counter.
+> **Rate limiting:** all `/api/*` routes are rate-limited per client (100 requests / 15 minutes by default), enforced consistently across all API replicas via a shared Redis counter.
 
 ---
 
@@ -493,51 +504,76 @@ Confirms the API is running and responsive; used by container orchestration to d
 
 ### Infrastructure
 
-The system is deployed on a single **Oracle Cloud Always Free** VM instance running Ubuntu, with the following managed services handling data persistence and messaging:
+The system is deployed on a single **Oracle Cloud Always Free** VM instance (Ubuntu 20.04 LTS, `VM.Standard.E2.1.Micro` — 1 OCPU / 1GB RAM), with the following managed services handling data persistence and messaging:
 
-| Component             | Production Service                         |
-| --------------------- | ------------------------------------------ |
-| Database              | **MongoDB Atlas** (M0 free tier)           |
-| Message Broker        | **CloudAMQP** (Little Lemur, free tier)    |
-| Cache / Rate Limiting | **Redis Cloud** (free tier)                |
-| Email                 | **Resend**, with a verified sending domain |
-| SMS                   | **Twilio**                                 |
-| Push                  | **Firebase Cloud Messaging**               |
+| Component             | Production Service                                          |
+| --------------------- | ----------------------------------------------------------- |
+| Database              | **MongoDB Atlas** (M0 free tier)                            |
+| Message Broker        | **CloudAMQP** (Little Lemur, free tier)                     |
+| Cache / Rate Limiting | **Redis Cloud** (free tier)                                 |
+| Email                 | **Resend**, with a verified sending domain (DKIM/SPF/DMARC) |
+| SMS                   | **Twilio**                                                  |
+| Push                  | **Firebase Cloud Messaging**                                |
 
-The application layer itself — 3 API replicas, 1 worker, and nginx — runs as Docker containers on the Oracle VM, connecting out to the managed services above rather than self-hosting them.
+The application layer — 3 API replicas, 1 worker, and nginx — runs as Docker containers on the Oracle VM, connecting out to the managed services above rather than self-hosting them.
 
 ### Deployment Process
 
-1. **Provision the VM** — an Oracle Cloud Always Free Ampere A1 (or AMD Micro) instance, Ubuntu image, with Docker and Docker Compose V2 installed
-2. **Clone the repository** onto the VM
-3. **Configure environment variables** — a `.env` file on the VM holds production values: managed-service connection strings (`MONGODB_URI`, `RABBITMQ_URL`, `REDIS_URL`), provider credentials (Resend, Twilio, Firebase), and the real-provider toggle flags (`USE_REAL_SMS=true`, `USE_REAL_PUSH=true`) — set to `true` in production, `false` in local development to avoid consuming provider trial credits
-4. **Start the stack**, without the `local` profile so no local Mongo/RabbitMQ/Redis containers are started:
+1. **Provision the VM and prepare the OS** — Ubuntu image on Oracle Cloud Always Free; installed Docker Engine + Compose V2 via Docker's official apt repository, plus `nano` (text editor) and `certbot` (for HTTPS certificates), none of which come pre-installed on this minimized Ubuntu image
+2. **Clone the repository** onto the VM over HTTPS, authenticated with a GitHub Personal Access Token
+3. **Configure environment variables** — a `.env` file on the VM (never committed to git) holds production values: managed-service connection strings (`MONGODB_URI`, `RABBITMQ_URL`, `REDIS_URL`, `RABBITMQ_MANAGEMENT_URL`), provider credentials (Resend, Twilio, Firebase), and the real-provider toggle flags (`USE_REAL_SMS=true`, `USE_REAL_PUSH=true`) — `true` in production, `false` in local development to avoid consuming provider trial credits
+4. **Start the stack**, without the `local` profile so no local Mongo/RabbitMQ/Redis containers start:
 
 ```bash
-   docker compose up --build -d
+   docker compose up -d
 ```
 
 5. **Verify** — `docker compose ps` confirms all containers (3× `api`, `worker`, `nginx`) are healthy and running; `docker compose logs` confirms each service successfully connected to its managed cloud dependency
 
+### DNS & Domain
+
+A subdomain (`wavecom.maryamadi.com`) points at the VM's public IP via an A record, giving the deployment a stable, memorable address independent of the underlying IP.
+
+### HTTPS
+
+TLS is provided by a free **Let's Encrypt** certificate, obtained via **Certbot** in **webroot mode** — chosen specifically because nginx runs inside a Docker container rather than directly on the host OS, so Certbot's usual automatic nginx-plugin integration doesn't apply. The webroot approach lets nginx keep running the entire time:
+
+1. nginx serves `/.well-known/acme-challenge/` from a shared folder, mounted into the container as a volume
+2. Certbot writes its verification file into that folder; Let's Encrypt's servers fetch it through the already-running nginx to confirm domain ownership
+3. Once issued, the certificate files (`/etc/letsencrypt/`) are mounted read-only into the nginx container
+4. nginx serves HTTPS on port 443 using the real certificate, and redirects all plain HTTP traffic on port 80 to HTTPS with a `301` — the one exception being `/.well-known/acme-challenge/`, which stays on plain HTTP so future renewals keep working
+5. **Auto-renewal** is handled by a cron job running `certbot renew` twice daily — a no-op unless the certificate is within 30 days of expiry, with a deploy-hook that restarts nginx only when a renewal actually occurs, so the container picks up the refreshed certificate
+
+**Request flow:** `http://wavecom.maryamadi.com` → nginx (port 80) → `301` redirect → browser reconnects on port 443 → TLS handshake → nginx (port 443) → proxied to the API.
+
 ### Network Access
 
-- nginx is the only container with a published port (`80`), and is the sole entry point for all external traffic — the API replicas themselves are not directly reachable from outside the Docker network
-- MongoDB Atlas, CloudAMQP, and Redis Cloud are each configured to accept connections from the VM's IP specifically (rather than left open to all IPs), reducing exposure to unauthorized access
+- **nginx is the only container with a published port** (80 and 443), and is the sole entry point for all external traffic — the API replicas are not directly reachable from outside the Docker network
+- **Oracle's Security List** (cloud-level firewall) explicitly allows inbound TCP on ports 22 (SSH), 80 (HTTP), and 443 (HTTPS) — all other ports are closed to the internet by default
+- MongoDB Atlas, CloudAMQP, and Redis Cloud are each reached over their own authenticated, encrypted connections (`mongodb+srv://`, `amqps://`, `redis://`, all credential-protected). MongoDB Atlas's network access is additionally restricted at the IP level; Redis Cloud and CloudAMQP were deliberately left open at the network level for this deployment, since the VM's public IP is ephemeral (not reserved) and would require the allowlist to be updated on every VM restart — a tradeoff of convenience over defense-in-depth for a project at this stage, with credential-based auth remaining the primary protection
+
+### Resilience Under Real Constraints
+
+Running on the smallest Always Free tier (1GB RAM, no swap by default) surfaced real operational lessons, addressed directly:
+
+- **Swap space** (1GB) was added and persisted via `/etc/fstab`, after a memory-intensive rebuild without it caused the VM to become briefly unresponsive
+- **`restart: unless-stopped`** is set on `api`, `worker`, and `nginx`, so all three automatically come back up after a host reboot (e.g. Oracle-side maintenance) without manual intervention — a gap discovered and fixed after an actual VM reboot took the deployment offline until it was manually noticed and restarted
 
 ### One Codebase, Two Modes
 
 The same `docker-compose.yml` and application code run locally and in production — only the `.env` values and the presence/absence of the `--profile local` flag differ:
 
 ```bash
-# Local development
+# Local development — also starts local Mongo/RabbitMQ/Redis containers
 docker compose --profile local up --build
 
-# Production (this deployment)
-docker compose up --build -d
+# Production (this deployment) — connects to managed cloud services instead
+docker compose up -d
 ```
 
 This means anything verified locally — load balancing, shared rate limiting, retry logic, graceful shutdown — behaves identically in production, since it's the same containers and code, just pointed at different (managed, rather than local) infrastructure.
-Good instinct — let's ground this entirely in things you actually built and can defend, not hypothetical capacity math for numbers you never tested.
+
+> **Requires Docker Compose V2.** Verify with `docker compose version`.
 
 ---
 
