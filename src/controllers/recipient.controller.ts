@@ -20,11 +20,14 @@ class RecipientController {
         return;
       }
 
-      const recipient = await recipientService.createAndWelcome(body);
+      const { recipient, isNew } =
+        await recipientService.findOrCreateAndWelcome(body);
 
-      res.status(201).json({
+      res.status(isNew ? 201 : 200).json({
         status: "success",
-        message: "Recipient created and welcome email queued",
+        message: isNew
+          ? "Recipient created and welcome email queued"
+          : "Recipient already exists",
         data: {
           id: recipient._id,
           name: recipient.name,
@@ -32,16 +35,9 @@ class RecipientController {
           preferredChannel: recipient.preferredChannel,
           createdAt: recipient.createdAt,
         },
+        isNew,
       });
-    } catch (error: any) {
-      if (error.code === 11000) {
-        res.status(409).json({
-          status: "error",
-          message: "A recipient with this email already exists",
-        });
-        return;
-      }
-
+    } catch (error) {
       log.error({ err: error }, "Error creating recipient");
       res.status(500).json({
         status: "error",
@@ -49,7 +45,6 @@ class RecipientController {
       });
     }
   }
-
   async getRecipient(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
