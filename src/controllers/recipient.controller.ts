@@ -8,6 +8,8 @@ const log = logger.child({ module: "recipient-controller" });
 
 class RecipientController {
   async createRecipient(req: Request, res: Response): Promise<void> {
+    console.log("🔥 NEW createRecipient controller HIT");
+
     try {
       const body: ICreateRecipientRequest = req.body;
       const { name, email } = body;
