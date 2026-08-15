@@ -13,8 +13,6 @@ const log = logger.child({ module: "notification-controller" });
 
 class NotificationController {
   async createNotification(req: Request, res: Response): Promise<void> {
-    console.log("🔥 NEW createRecipient controller HIT");
-
     try {
       const body: ICreateNotificationRequest = req.body;
       const { recipient, message, channel } = body;
