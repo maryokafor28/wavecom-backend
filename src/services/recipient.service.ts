@@ -80,8 +80,24 @@ class RecipientService {
     return Recipient.findById(id);
   }
 
-  async list(): Promise<HydratedDocument<IRecipient>[]> {
-    return Recipient.find().sort({ createdAt: -1 });
+  async list(page: number, limit: number) {
+    const skip = (page - 1) * limit;
+
+    const [recipients, total] = await Promise.all([
+      Recipient.find().sort({ createdAt: -1 }).skip(skip).limit(limit),
+
+      Recipient.countDocuments(),
+    ]);
+
+    return {
+      recipients,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async deleteById(id: string): Promise<HydratedDocument<IRecipient> | null> {

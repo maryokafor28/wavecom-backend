@@ -81,7 +81,13 @@ class RecipientController {
 
   async listRecipients(req: Request, res: Response): Promise<void> {
     try {
-      const recipients = await recipientService.list();
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
+
+      const { recipients, pagination } = await recipientService.list(
+        page,
+        limit,
+      );
 
       res.status(200).json({
         status: "success",
@@ -92,16 +98,17 @@ class RecipientController {
           preferredChannel: r.preferredChannel,
           createdAt: r.createdAt,
         })),
+        pagination,
       });
     } catch (error) {
       log.error({ err: error }, "Error listing recipients");
+
       res.status(500).json({
         status: "error",
         message: "Failed to list recipients",
       });
     }
   }
-
   async deleteRecipient(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
