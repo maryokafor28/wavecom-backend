@@ -110,6 +110,7 @@ class NotificationController {
         failedAt: notification.failedAt,
         error: notification.error,
         metadata: notification.metadata,
+        statusHistory: notification.statusHistory,
         createdAt: notification.createdAt,
         updatedAt: notification.updatedAt,
       };
