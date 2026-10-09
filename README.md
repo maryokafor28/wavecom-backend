@@ -294,7 +294,6 @@ All field constraints (required fields, max lengths, enums) are enforced at the 
 { channel: 1, status: 1 }         // Filter by channel and status
 ```
 
-Good, this clarifies something important the original README got wrong: **there are actually two separate retry layers**, not one. Let me write this accurately.
 
 ````markdown
 ## Queueing Model & Retry Flow
