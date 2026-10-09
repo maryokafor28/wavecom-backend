@@ -1,8 +1,16 @@
 import { Request, Response } from "express";
-import { HydratedDocument } from "mongoose";
+import { HydratedDocument, isValidObjectId } from "mongoose";
 import { ICreateRecipientRequest, IRecipient } from "../types";
 import { logger } from "../config/logger";
-import { recipientService } from "../services/recipient.service";
+import { isValidChannel } from "../validators/notification.validator";
+import {
+  normalizePhone,
+  isValidPhone,
+} from "../validators/recipient.validator";
+import {
+  recipientService,
+  IUpdateRecipientInput,
+} from "../services/recipient.service";
 
 const log = logger.child({ module: "recipient-controller" });
 
@@ -106,6 +114,110 @@ class RecipientController {
       res.status(500).json({
         status: "error",
         message: "Failed to list recipients",
+      });
+    }
+  }
+
+  async updateRecipient(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      if (!isValidObjectId(id)) {
+        res.status(400).json({
+          status: "error",
+          message: "Invalid recipient id",
+        });
+        return;
+      }
+
+      const { name, phone, preferredChannel } = req.body ?? {};
+      const input: IUpdateRecipientInput = {};
+
+      if (name !== undefined) {
+        if (
+          typeof name !== "string" ||
+          !name.trim() ||
+          name.trim().length > 200
+        ) {
+          res.status(400).json({
+            status: "error",
+            message: "name must be a non-empty string (max 200 characters)",
+          });
+          return;
+        }
+        input.name = name.trim();
+      }
+
+      if (phone !== undefined) {
+        if (phone === null || phone === "") {
+          input.phone = null;
+        } else {
+          const normalized =
+            typeof phone === "string" ? normalizePhone(phone) : "";
+          if (!isValidPhone(normalized)) {
+            res.status(400).json({
+              status: "error",
+              message:
+                "phone must be in international format, e.g. +2347012345678",
+            });
+            return;
+          }
+          input.phone = normalized;
+        }
+      }
+
+      if (preferredChannel !== undefined) {
+        if (!isValidChannel(preferredChannel)) {
+          res.status(400).json({
+            status: "error",
+            message: "Invalid preferredChannel. Must be: email, sms, or push",
+          });
+          return;
+        }
+        input.preferredChannel = preferredChannel;
+      }
+
+      if (Object.keys(input).length === 0) {
+        res.status(400).json({
+          status: "error",
+          message: "Provide at least one of: name, phone, preferredChannel",
+        });
+        return;
+      }
+
+      const recipient = await recipientService.update(id, input);
+
+      if (!recipient) {
+        res.status(404).json({
+          status: "error",
+          message: "Recipient not found",
+        });
+        return;
+      }
+
+      log.info(
+        { recipientId: id, fields: Object.keys(input) },
+        "Recipient updated",
+      );
+
+      res.status(200).json({
+        status: "success",
+        message: "Recipient updated",
+        data: {
+          id: recipient._id,
+          name: recipient.name,
+          email: recipient.email,
+          phone: recipient.phone,
+          preferredChannel: recipient.preferredChannel,
+          createdAt: recipient.createdAt,
+          updatedAt: recipient.updatedAt,
+        },
+      });
+    } catch (error) {
+      log.error({ err: error }, "Error updating recipient");
+      res.status(500).json({
+        status: "error",
+        message: "Failed to update recipient",
       });
     }
   }

@@ -20,5 +20,8 @@ router.delete("/:id", (req, res) =>
 router.patch("/:id/push-token", (req, res) =>
   recipientController.updatePushToken(req, res),
 );
-
+// PATCH /api/recipients/:id - Update name, phone, or preferred channel
+router.patch("/:id", (req, res) =>
+  recipientController.updateRecipient(req, res),
+);
 export default router;

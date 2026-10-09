@@ -3,8 +3,15 @@ import { ICreateRecipientRequest, IRecipient } from "../types";
 import { logger } from "../config/logger";
 import Recipient from "../models/recipient.model";
 import { notificationService } from "./notification.service";
+import { NotificationChannel } from "../types";
 
 const log = logger.child({ module: "recipient-service" });
+
+export interface IUpdateRecipientInput {
+  name?: string;
+  phone?: string | null; // null clears the phone number
+  preferredChannel?: NotificationChannel;
+}
 
 function buildWelcomeEmailBody(name: string): string {
   return `Hello ${name},
@@ -113,6 +120,32 @@ class RecipientService {
       { pushToken },
       { new: true }, // return the updated document, not the pre-update one
     );
+  }
+
+  async update(
+    id: string,
+    input: IUpdateRecipientInput,
+  ): Promise<HydratedDocument<IRecipient> | null> {
+    const set: Record<string, unknown> = {};
+    const unset: Record<string, 1> = {};
+
+    if (input.name !== undefined) set.name = input.name;
+    if (input.preferredChannel !== undefined) {
+      set.preferredChannel = input.preferredChannel;
+    }
+    if (input.phone !== undefined) {
+      if (input.phone === null) unset.phone = 1;
+      else set.phone = input.phone;
+    }
+
+    const update: Record<string, unknown> = {};
+    if (Object.keys(set).length > 0) update.$set = set;
+    if (Object.keys(unset).length > 0) update.$unset = unset;
+
+    return Recipient.findByIdAndUpdate(id, update, {
+      new: true, // return the updated document
+      runValidators: true, // enforce the schema's maxlength/enum rules on update
+    });
   }
 }
 
