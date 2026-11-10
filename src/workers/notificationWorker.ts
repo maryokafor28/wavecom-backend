@@ -59,6 +59,7 @@ class NotificationWorker {
         notification.recipient,
         notification.message,
         notification.subject,
+        { notificationId},
       );
 
       notification.provider = result.provider;

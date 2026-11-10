@@ -1,52 +1,38 @@
-import { HydratedDocument } from "mongoose";
-import {
-  NotificationChannel,
-  ICreateNotificationRequest,
-  INotification,
-  IQueueMessage,
-} from "../types";
-import { logger } from "../config/logger";
-import Notification from "../models/notification.model";
-import { queueService } from "./queue.service";
-import {
-  NotificationProvider,
-  SmsNotificationProvider,
-} from "./providers/types";
-import { ResendEmailProvider } from "./providers/email/resend.provider";
-import {
-  MockPushProvider,
-  FirebasePushProvider,
-} from "./providers/push/firebase.provider";
-import {
-  TwilioSmsProvider,
-  MockSmsProvider,
-} from "./providers/sms/twilioSms.provider";
-import { envConfig } from "../config/env.config";
+import { HydratedDocument } from 'mongoose'
+import { NotificationChannel, ICreateNotificationRequest, INotification, IQueueMessage } from '../types'
+import { logger } from '../config/logger'
+import Notification from '../models/notification.model'
+import { queueService } from './queue.service'
+import { NotificationProvider, NotificationMetadata, SmsNotificationProvider } from './providers/types'
+import { ResendEmailProvider } from './providers/email/resend.provider'
+import { MockPushProvider, FirebasePushProvider } from './providers/push/firebase.provider'
+import { TwilioSmsProvider, MockSmsProvider } from './providers/sms/twilioSms.provider'
+import { envConfig } from '../config/env.config'
 
-const log = logger.child({ module: "notification-service" });
+const log = logger.child({ module: 'notification-service' })
 
-const SEND_TIMEOUT_MS = 10_000;
+const SEND_TIMEOUT_MS = 10_000
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timeoutHandle: NodeJS.Timeout;
+  let timeoutHandle: NodeJS.Timeout
   const timeout = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(
       () => reject(new Error(`Send timed out after ${ms}ms`)),
       ms,
-    );
-  });
+    )
+  })
 
   try {
-    return await Promise.race([promise, timeout]);
+    return await Promise.race([promise, timeout])
   } finally {
-    clearTimeout(timeoutHandle!);
+    clearTimeout(timeoutHandle!)
   }
 }
 
 interface SendResult {
-  success: boolean;
-  error?: string;
-  provider: string; // which concrete provider actually handled this send
+  success: boolean
+  error?: string
+  provider: string // which concrete provider actually handled this send
 }
 
 class NotificationService {
@@ -54,24 +40,24 @@ class NotificationService {
   // boolean-returning NotificationProvider interface. SMS gets its own
   // provider + result type so a real failure reason (e.g. a Twilio trial
   // limitation) can be surfaced on the notification record.
-  private providers: Record<"email" | "push", NotificationProvider> = {
+  private providers: Record<'email' | 'push', NotificationProvider> = {
     email: new ResendEmailProvider(),
     push: envConfig.useRealPush
       ? new FirebasePushProvider()
       : new MockPushProvider(),
-  };
+  }
 
   private smsProvider: SmsNotificationProvider = envConfig.useRealSms
     ? new TwilioSmsProvider()
-    : new MockSmsProvider();
+    : new MockSmsProvider()
 
   // Provider name, resolved once, used to tag every notification with
   // which concrete implementation actually handled it.
   private providerNames: Record<NotificationChannel, string> = {
-    email: "resend",
-    sms: envConfig.useRealSms ? "twilio" : "mock",
-    push: envConfig.useRealPush ? "firebase" : "mock",
-  };
+    email: 'resend',
+    sms: envConfig.useRealSms ? 'twilio' : 'mock',
+    push: envConfig.useRealPush ? 'firebase' : 'mock',
+  }
 
   // --- Sending ---
 
@@ -80,103 +66,103 @@ class NotificationService {
     recipient: string,
     message: string,
     subject?: string,
+    metadata?: NotificationMetadata,
   ): Promise<SendResult> {
-    log.info({ channel, recipient }, "Sending notification");
+    log.info({ channel, recipient }, 'Sending notification')
 
-    const provider = this.providerNames[channel];
+    const provider = this.providerNames[channel]
 
     try {
-      if (channel === "sms") {
+      if (channel === 'sms') {
         const result = await withTimeout(
           this.smsProvider.send(recipient, message),
           SEND_TIMEOUT_MS,
-        );
-        return { ...result, provider };
+        )
+        return { ...result, provider }
       }
 
-      const channelProvider = this.providers[channel];
+      const channelProvider = this.providers[channel]
 
       if (!channelProvider) {
-        log.error({ channel }, "Unsupported notification channel");
+        log.error({ channel }, 'Unsupported notification channel')
         return {
           success: false,
           error: `Unsupported notification channel: ${channel}`,
           provider,
-        };
+        }
       }
 
       const success = await withTimeout(
-        channelProvider.send(recipient, message, subject),
+        channelProvider.send(recipient, message, subject,   channel === "push" ? metadata : undefined,
+),
         SEND_TIMEOUT_MS,
-      );
-      return { success, provider };
+      )
+      return { success, provider }
     } catch (error) {
-      const errMessage = error instanceof Error ? error.message : String(error);
+      const errMessage = error instanceof Error ? error.message : String(error)
       log.error(
         { err: error, channel, recipient },
-        "Error in notification provider",
-      );
-      return { success: false, error: errMessage, provider };
+        'Error in notification provider',
+      )
+      return { success: false, error: errMessage, provider }
     }
   }
 
-  // --- CRUD / lifecycle (moved from the controller) ---
-
   async createAndQueue(data: ICreateNotificationRequest): Promise<{
-    notification: HydratedDocument<INotification>;
-    queueError: boolean;
+    notification: HydratedDocument<INotification>
+    queueError: boolean
   }> {
-    const now = new Date();
+    const now = new Date()
 
     const notification = await Notification.create({
       ...data,
-      status: "pending",
+      status: 'pending',
       attempts: 0,
       maxAttempts: 3,
-      statusHistory: [{ status: "pending", timestamp: now }],
-    });
+      statusHistory: [{ status: 'pending', timestamp: now }],
+    })
 
-    log.info({ notificationId: notification._id }, "Notification created");
+    log.info({ notificationId: notification._id }, 'Notification created')
 
     const queueMessage: IQueueMessage = {
       notificationId: notification._id.toString(),
       attempt: 1,
-    };
+    }
 
     try {
-      await queueService.publishToQueue(queueMessage);
+      await queueService.publishToQueue(queueMessage)
 
-      notification.status = "queued";
+      notification.status = 'queued'
       notification.statusHistory.push({
-        status: "queued",
+        status: 'queued',
         timestamp: new Date(),
-      });
-      await notification.save();
+      })
+      await notification.save()
 
-      return { notification, queueError: false };
+      return { notification, queueError: false }
     } catch (publishError) {
       // The DB record exists but nothing will ever process it unless we
       // mark it failed here — otherwise it's orphaned in "pending" forever.
       log.error(
         { err: publishError, notificationId: notification._id },
-        "Failed to publish notification to queue",
-      );
+        'Failed to publish notification to queue',
+      )
 
-      notification.status = "failed";
-      notification.error = "Failed to queue notification for processing";
+      notification.status = 'failed'
+      notification.error = 'Failed to queue notification for processing'
       notification.statusHistory.push({
-        status: "failed",
+        status: 'failed',
         timestamp: new Date(),
-        detail: "Failed to queue notification for processing",
-      });
-      await notification.save();
+        detail: 'Failed to queue notification for processing',
+      })
+      await notification.save()
 
-      return { notification, queueError: true };
+      return { notification, queueError: true }
     }
   }
 
   async getById(id: string): Promise<HydratedDocument<INotification> | null> {
-    return Notification.findById(id);
+    return Notification.findById(id)
   }
 
   async list(
@@ -184,25 +170,25 @@ class NotificationService {
     pageNum: number,
     limitNum: number,
   ): Promise<{
-    notifications: HydratedDocument<INotification>[];
-    totalCount: number;
+    notifications: HydratedDocument<INotification>[]
+    totalCount: number
   }> {
-    const skip = (pageNum - 1) * limitNum;
+    const skip = (pageNum - 1) * limitNum
 
-    const totalCount = await Notification.countDocuments(filter);
+    const totalCount = await Notification.countDocuments(filter)
     const notifications = await Notification.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limitNum);
+      .limit(limitNum)
 
-    return { notifications, totalCount };
+    return { notifications, totalCount }
   }
 
   async deleteById(
     id: string,
   ): Promise<HydratedDocument<INotification> | null> {
-    return Notification.findByIdAndDelete(id);
+    return Notification.findByIdAndDelete(id)
   }
 }
 
-export const notificationService = new NotificationService();
+export const notificationService = new NotificationService()
