@@ -147,6 +147,14 @@ class RecipientService {
       runValidators: true, // enforce the schema's maxlength/enum rules on update
     });
   }
+
+  async clearPushToken(id: string) {
+  return Recipient.findByIdAndUpdate(
+    id,
+    { $unset: { pushToken: 1 } },
+    { new: true },
+  );
+}
 }
 
 export const recipientService = new RecipientService();

@@ -16,10 +16,18 @@ router.get("/", (req, res) => recipientController.listRecipients(req, res));
 router.delete("/:id", (req, res) =>
   recipientController.deleteRecipient(req, res),
 );
+
 // PATCH /api/recipients/:id/push-token - Register/update FCM device token
 router.patch("/:id/push-token", (req, res) =>
   recipientController.updatePushToken(req, res),
 );
+
+
+// DELETE /api/recipients/:id/push-token - Remove the stored FCM device token
+router.delete("/:id/push-token", (req, res) =>
+  recipientController.deletePushToken(req, res),
+);
+
 // PATCH /api/recipients/:id - Update name, phone, or preferred channel
 router.patch("/:id", (req, res) =>
   recipientController.updateRecipient(req, res),

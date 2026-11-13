@@ -3,14 +3,8 @@ import { HydratedDocument, isValidObjectId } from "mongoose";
 import { ICreateRecipientRequest, IRecipient } from "../types";
 import { logger } from "../config/logger";
 import { isValidChannel } from "../validators/notification.validator";
-import {
-  normalizePhone,
-  isValidPhone,
-} from "../validators/recipient.validator";
-import {
-  recipientService,
-  IUpdateRecipientInput,
-} from "../services/recipient.service";
+import { normalizePhone, isValidPhone } from "../validators/recipient.validator";
+import { recipientService, IUpdateRecipientInput } from "../services/recipient.service";
 
 const log = logger.child({ module: "recipient-controller" });
 
@@ -53,6 +47,7 @@ class RecipientController {
       });
     }
   }
+
   async getRecipient(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
@@ -74,6 +69,7 @@ class RecipientController {
           email: recipient.email,
           phone: recipient.phone,
           preferredChannel: recipient.preferredChannel,
+          hasPushToken: !!recipient.pushToken,
           createdAt: recipient.createdAt,
           updatedAt: recipient.updatedAt,
         },
@@ -209,6 +205,7 @@ class RecipientController {
           email: recipient.email,
           phone: recipient.phone,
           preferredChannel: recipient.preferredChannel,
+          hasPushToken: !!recipient.pushToken,
           createdAt: recipient.createdAt,
           updatedAt: recipient.updatedAt,
         },
@@ -221,6 +218,7 @@ class RecipientController {
       });
     }
   }
+
   async deleteRecipient(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
@@ -280,7 +278,7 @@ class RecipientController {
         message: "Push token updated",
         data: {
           id: recipient._id,
-          pushToken: recipient.pushToken,
+          hasPushToken: true,
         },
       });
     } catch (error) {
@@ -291,6 +289,35 @@ class RecipientController {
       });
     }
   }
+  
+  async deletePushToken(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      res.status(400).json({ status: "error", message: "Invalid recipient id" });
+      return;
+    }
+
+    const recipient = await recipientService.clearPushToken(id);
+
+    if (!recipient) {
+      res.status(404).json({ status: "error", message: "Recipient not found" });
+      return;
+    }
+
+    log.info({ recipientId: id }, "Recipient push token cleared");
+
+    res.status(200).json({
+      status: "success",
+      message: "Push token removed",
+      data: { id: recipient._id, hasPushToken: false },
+    });
+  } catch (error) {
+    log.error({ err: error }, "Error removing push token");
+    res.status(500).json({ status: "error", message: "Failed to remove push token" });
+  }
+}
 }
 
 export const recipientController = new RecipientController();
